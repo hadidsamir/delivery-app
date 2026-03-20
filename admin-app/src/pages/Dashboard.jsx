@@ -54,11 +54,15 @@ export default function Dashboard() {
         { event: 'UPDATE', schema: 'public', table: 'orders' },
         (payload) => {
           setOrders(prev =>
-            prev.map(order =>
-              order.id === payload.new.id
-                ? { ...order, ...payload.new }
-                : order
-            )
+            prev.map(order => {
+              if (order.id !== payload.new.id) return order
+              return {
+                ...order,
+                ...payload.new,
+                // Si courier_id pasó a null (mensajero rechazó), limpiar el JOIN
+                couriers: payload.new.courier_id ? order.couriers : null,
+              }
+            })
           )
         }
       )
