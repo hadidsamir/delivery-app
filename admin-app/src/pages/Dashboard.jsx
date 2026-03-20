@@ -5,12 +5,12 @@ import { supabase } from '../lib/supabase'
 const CLIENT_URL = import.meta.env.VITE_CLIENT_APP_URL || 'http://localhost:5175'
 
 const STATUS_BADGE = {
-  pendiente:  'bg-gray-100 text-gray-600',
+  pendiente:  'bg-yellow-100 text-yellow-700',
   en_camino:  'bg-orange-100 text-orange-700',
   entregado:  'bg-green-100 text-green-700',
 }
 const STATUS_LABEL = {
-  pendiente: 'Pendiente',
+  pendiente: '⏳ Esperando mensajero',
   en_camino: 'En camino',
   entregado: 'Entregado',
 }

@@ -50,7 +50,7 @@ export default function NewOrder() {
       client_phone: form.client_phone,
       delivery_address: form.delivery_address,
       courier_id: form.courier_id,
-      status: 'en_camino',
+      status: 'pendiente',
       items: validItems.map(i => ({ name: i.name, qty: Number(i.qty) })),
       delivery_order: 1,
     })
