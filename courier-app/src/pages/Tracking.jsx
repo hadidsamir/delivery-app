@@ -8,7 +8,7 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL
 export default function Tracking() {
   const { orderId } = useParams()
   const navigate = useNavigate()
-  const intervalRef = useRef(null)
+  const watchIdRef = useRef(null)
   const wakeLockRef = useRef(null)
   const courierRef = useRef(null)
 
@@ -79,7 +79,10 @@ export default function Tracking() {
     fetchOrder(courierData)
 
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current)
+        watchIdRef.current = null
+      }
       if (wakeLockRef.current) { wakeLockRef.current.release(); wakeLockRef.current = null }
     }
   }, [])
@@ -106,49 +109,73 @@ export default function Tracking() {
     }
   }
 
-  // ── 5. Iniciar rastreo ───────────────────────────────────────────────────
-  function startTracking(orderData, courierData) {
-    setGpsError('')
-    navigator.geolocation.getCurrentPosition(
-      () => {
-        setTracking(true)
-        requestWakeLock()
-
-        // Avisar al SW para GPS en segundo plano (cada 8s)
-        navigator.serviceWorker.ready.then(() => {
-          navigator.serviceWorker.controller?.postMessage({
-            type: 'START_GPS',
-            payload: { courier_id: courierData.id, order_id: orderData.id, backendUrl: BACKEND_URL },
-          })
-        })
-
-        // Intervalo en primer plano (cada 3s)
-        intervalRef.current = setInterval(() => {
-          navigator.geolocation.getCurrentPosition(
-            (pos) => {
-              const payload = {
-                courier_id: courierData.id,
-                order_id: orderData.id,
-                latitude: pos.coords.latitude,
-                longitude: pos.coords.longitude,
-              }
-              axios.post(`${BACKEND_URL}/api/location`, payload)
-                .then(() => setDebugInfo(
-                  `✓ ${new Date().toLocaleTimeString()} lat=${pos.coords.latitude.toFixed(4)} lng=${pos.coords.longitude.toFixed(4)}`
-                ))
-                .catch(err => setDebugInfo(`✗ Error: ${err.message}`))
-            },
-            (err) => setDebugInfo(`✗ GPS: ${err.message}`)
-          )
-        }, 3000)
-      },
-      () => setGpsError('No se pudo acceder al GPS. Verifica los permisos de ubicación.')
-    )
+  // ── 5. Enviar ubicación al backend ───────────────────────────────────────
+  function sendLocation(lat, lng, courierData, orderData) {
+    axios.post(`${BACKEND_URL}/api/location`, {
+      courier_id: courierData.id,
+      order_id: orderData.id,
+      latitude: lat,
+      longitude: lng,
+    })
+      .then(() => setDebugInfo(
+        `✓ ${new Date().toLocaleTimeString()} lat=${lat.toFixed(4)} lng=${lng.toFixed(4)}`
+      ))
+      .catch(err => setDebugInfo(`✗ Error: ${err.message}`))
   }
 
-  // ── 6. Detener rastreo ───────────────────────────────────────────────────
+  // ── 6. Iniciar rastreo ───────────────────────────────────────────────────
+  function startTracking(orderData, courierData) {
+    setGpsError('')
+
+    const beginWatch = () => {
+      setTracking(true)
+      requestWakeLock()
+
+      // Avisar al SW para GPS en segundo plano (cada 8s)
+      navigator.serviceWorker.ready.then(() => {
+        navigator.serviceWorker.controller?.postMessage({
+          type: 'START_GPS',
+          payload: { courier_id: courierData.id, order_id: orderData.id, backendUrl: BACKEND_URL },
+        })
+      })
+
+      // watchPosition en primer plano — más eficiente que setInterval
+      watchIdRef.current = navigator.geolocation.watchPosition(
+        (pos) => {
+          window._lastKnownPosition = pos
+          sendLocation(pos.coords.latitude, pos.coords.longitude, courierData, orderData)
+        },
+        (err) => setDebugInfo(`✗ GPS: ${err.message}`),
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+      )
+    }
+
+    // ¿Hay posición pre-calentada reciente (< 5 segundos)?
+    const warm = window._lastKnownPosition
+    if (warm && (Date.now() - warm.timestamp) < 5000) {
+      console.log('[GPS] Usando posición pre-calentada — inicio instantáneo')
+      sendLocation(warm.coords.latitude, warm.coords.longitude, courierData, orderData)
+      beginWatch()
+    } else {
+      // Sin pre-calentamiento: esperar primera posición
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          window._lastKnownPosition = pos
+          sendLocation(pos.coords.latitude, pos.coords.longitude, courierData, orderData)
+          beginWatch()
+        },
+        () => setGpsError('No se pudo acceder al GPS. Verifica los permisos de ubicación.'),
+        { enableHighAccuracy: true, timeout: 10000 }
+      )
+    }
+  }
+
+  // ── 7. Detener rastreo ───────────────────────────────────────────────────
   function stopTracking() {
-    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current)
+      watchIdRef.current = null
+    }
     navigator.serviceWorker.controller?.postMessage({ type: 'STOP_GPS' })
     setTracking(false)
     setIsBackground(false)

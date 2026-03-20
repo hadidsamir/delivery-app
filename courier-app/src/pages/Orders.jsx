@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
@@ -8,8 +8,28 @@ export default function Orders() {
   const [loading, setLoading] = useState(true)
   const [successMsg, setSuccessMsg] = useState('')
   const [actionLoading, setActionLoading] = useState(null)
+  const [gpsReady, setGpsReady] = useState(false)
+  const watchIdRef = useRef(null)
   const navigate = useNavigate()
   const location = useLocation()
+
+  // ── Pre-calentar GPS en silencio para inicio instantáneo ─────────────────
+  useEffect(() => {
+    if (!('geolocation' in navigator)) return
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        window._lastKnownPosition = pos
+        setGpsReady(true)
+      },
+      (err) => console.log('[GPS pre-calentamiento]', err),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 3000 }
+    )
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const stored = localStorage.getItem('courier')
@@ -95,10 +115,22 @@ export default function Orders() {
             <p className="text-xs text-gray-500">Bienvenido</p>
             <h2 className="text-lg font-bold text-gray-900">{courier.name}</h2>
           </div>
-          <button onClick={handleLogout}
-            className="text-sm text-gray-500 hover:text-red-500 border border-gray-200 hover:border-red-300 px-3 py-2 rounded-lg transition-colors">
-            Cerrar sesión
-          </button>
+          <div className="flex items-center gap-3">
+            {/* Indicador GPS listo */}
+            {gpsReady && (
+              <div className="relative group flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-lg px-2.5 py-1.5">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+                </span>
+                <span className="text-green-700 text-xs font-semibold">GPS listo</span>
+              </div>
+            )}
+            <button onClick={handleLogout}
+              className="text-sm text-gray-500 hover:text-red-500 border border-gray-200 hover:border-red-300 px-3 py-2 rounded-lg transition-colors">
+              Cerrar sesión
+            </button>
+          </div>
         </div>
       </div>
 
