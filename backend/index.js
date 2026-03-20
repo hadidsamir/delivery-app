@@ -24,7 +24,14 @@ const io = new Server(server, {
   },
 });
 
-app.use(cors({ origin: allowedOrigins, methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
+const corsOptions = {
+  origin: allowedOrigins,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200,
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // preflight explícito para todas las rutas
 
 // Middleware CORS explícito — maneja preflight OPTIONS en producción
 app.use((req, res, next) => {
