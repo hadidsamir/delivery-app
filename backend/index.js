@@ -15,13 +15,16 @@ const supabase = createClient(
 // ── Express + HTTP + Socket.io ────────────────────────────────────────────────
 const app = express();
 const server = http.createServer(app);
-const allowedOrigins = process.env.CORS_ORIGIN.split(',').map(o => o.trim());
+const allowedOrigins = (process.env.CORS_ORIGIN || '*').split(',').map(o => o.trim());
 
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
     methods: ['GET', 'POST'],
+    credentials: false,
   },
+  transports: ['polling', 'websocket'],
+  allowEIO3: true,
 });
 
 const corsOptions = {

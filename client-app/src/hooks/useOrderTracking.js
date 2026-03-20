@@ -57,15 +57,32 @@ export function useOrderTracking(token) {
           courierLocation: initialLocation,
         }))
 
-        // Conectar WebSocket
-        const socket = io(BACKEND_URL, { transports: ['websocket'] })
+        // Conectar WebSocket — polling primero para compatibilidad con Railway/proxies
+        const socket = io(BACKEND_URL, {
+          transports: ['polling', 'websocket'],
+          upgrade: true,
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000,
+          forceNew: true,
+        })
         socketRef.current = socket
 
         socket.on('connect', () => {
+          console.log('[Socket] Conectado:', socket.id)
           socket.emit('join:order', order.id)
         })
 
+        socket.on('disconnect', (reason) => {
+          console.log('[Socket] Desconectado:', reason)
+        })
+
+        socket.on('connect_error', (err) => {
+          console.error('[Socket] Error de conexión:', err.message)
+        })
+
         socket.on('location:update', ({ latitude, longitude }) => {
+          console.log('[Socket] Ubicación recibida:', latitude, longitude)
           setState(s => ({ ...s, courierLocation: { lat: latitude, lng: longitude } }))
         })
 
