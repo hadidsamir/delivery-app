@@ -15,13 +15,6 @@ const STATUS_LABEL = {
   entregado: 'Entregado',
 }
 
-function isToday(dateStr) {
-  const d = new Date(dateStr)
-  const now = new Date()
-  return d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
-}
 
 export default function Dashboard() {
   const navigate = useNavigate()
@@ -87,9 +80,8 @@ export default function Dashboard() {
   }
 
   // Stats
-  const todayOrders = orders.filter(o => isToday(o.created_at))
   const enCamino = orders.filter(o => o.status === 'en_camino').length
-  const entregadosHoy = todayOrders.filter(o => o.status === 'entregado').length
+  const entregados = orders.filter(o => o.status === 'entregado').length
 
   // Copy link
   async function copyLink(token) {
@@ -148,9 +140,9 @@ export default function Dashboard() {
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
           {[
-            { label: 'Total pedidos hoy', value: todayOrders.length, color: 'text-gray-900' },
+            { label: 'Total pedidos', value: orders.length, color: 'text-gray-900' },
             { label: 'En camino', value: enCamino, color: 'text-orange-500' },
-            { label: 'Entregados hoy', value: entregadosHoy, color: 'text-green-600' },
+            { label: 'Entregados', value: entregados, color: 'text-green-600' },
           ].map(s => (
             <div key={s.label} className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
               <p className="text-sm text-gray-500">{s.label}</p>
