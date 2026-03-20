@@ -17,6 +17,7 @@ export default function Tracking() {
   const [gpsError, setGpsError] = useState('')
   const [delivering, setDelivering] = useState(false)
   const [debugInfo, setDebugInfo] = useState('')
+  const wakeLockRef = useRef(null)
 
   useEffect(() => {
     const stored = localStorage.getItem('courier')
@@ -30,6 +31,11 @@ export default function Tracking() {
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
+      // Liberar Wake Lock al salir
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release()
+        wakeLockRef.current = null
+      }
     }
   }, [])
 
@@ -46,11 +52,28 @@ export default function Tracking() {
     if (data) startTracking(data)
   }
 
+  async function requestWakeLock() {
+    if ('wakeLock' in navigator) {
+      try {
+        wakeLockRef.current = await navigator.wakeLock.request('screen')
+        // Reactivar si la pantalla se apagó temporalmente (ej. llamada)
+        document.addEventListener('visibilitychange', async () => {
+          if (document.visibilityState === 'visible' && wakeLockRef.current === null) {
+            wakeLockRef.current = await navigator.wakeLock.request('screen')
+          }
+        })
+      } catch (err) {
+        console.warn('Wake Lock no disponible:', err)
+      }
+    }
+  }
+
   function startTracking(orderData) {
     setGpsError('')
     navigator.geolocation.getCurrentPosition(
       () => {
         setTracking(true)
+        requestWakeLock() // Mantener pantalla encendida
         const stored = JSON.parse(localStorage.getItem('courier'))
 
         intervalRef.current = setInterval(() => {
@@ -138,7 +161,10 @@ export default function Tracking() {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
               </span>
-              <span className="text-green-700 font-semibold text-sm">Compartiendo ubicación</span>
+              <div>
+                <span className="text-green-700 font-semibold text-sm block">Compartiendo ubicación</span>
+                <span className="text-green-600 text-xs">Mantén esta pantalla abierta</span>
+              </div>
             </>
           ) : (
             <>
