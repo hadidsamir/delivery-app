@@ -134,19 +134,34 @@ app.post('/api/location', async (req, res) => {
 
   const updated_at = new Date().toISOString();
 
-  const { error } = await supabase
-    .from('courier_locations')
-    .upsert(
-      { courier_id, order_id, latitude, longitude, updated_at },
-      { onConflict: 'order_id' }
-    );
-
-  // Emitir al room del pedido siempre (independiente del resultado del upsert)
+  // Emitir al room del pedido inmediatamente (tiempo real)
   io.to(`order_${order_id}`).emit('location:update', {
     latitude,
     longitude,
     updated_at,
   });
+
+  // Persistir en BD: update si existe, insert si no
+  const { data: existing } = await supabase
+    .from('courier_locations')
+    .select('id')
+    .eq('order_id', order_id)
+    .limit(1)
+    .single();
+
+  let error;
+  if (existing) {
+    const { error: updateError } = await supabase
+      .from('courier_locations')
+      .update({ courier_id, latitude, longitude, updated_at })
+      .eq('order_id', order_id);
+    error = updateError;
+  } else {
+    const { error: insertError } = await supabase
+      .from('courier_locations')
+      .insert({ courier_id, order_id, latitude, longitude, updated_at });
+    error = insertError;
+  }
 
   if (error) {
     console.error('[location] error upsert:', error.message);
