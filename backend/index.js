@@ -183,11 +183,6 @@ app.put('/api/order/:id/status', async (req, res) => {
 
   const updateData = { status };
 
-  // Si se marca como entregado, guardar timestamp para calcular expiración del token
-  if (status === 'entregado') {
-    updateData.delivered_at = new Date().toISOString();
-  }
-
   const { data, error } = await supabase
     .from('orders')
     .update(updateData)
