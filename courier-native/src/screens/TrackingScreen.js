@@ -44,25 +44,32 @@ export default function TrackingScreen({ route, navigation }) {
       }))
 
       if (bgStatus === 'granted') {
-        // Iniciar rastreo nativo en segundo plano (funciona con pantalla apagada)
-        const isRunning = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK)
-          .catch(() => false)
+        try {
+          // Detener tarea previa si existe (evita conflictos)
+          const isRunning = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK)
+            .catch(() => false)
+          if (isRunning) {
+            await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK)
+              .catch(() => {})
+          }
 
-        if (!isRunning) {
+          // Iniciar rastreo nativo en segundo plano
           await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
             accuracy: Location.Accuracy.High,
             timeInterval: 8000,
             distanceInterval: 0,
             foregroundService: {
-              notificationTitle: 'Rastreo activo 🛵',
-              notificationBody: 'Tu ubicación está siendo compartida con el cliente',
+              notificationTitle: 'Rastreo activo',
+              notificationBody: 'Tu ubicacion esta siendo compartida con el cliente',
               notificationColor: '#F97316',
             },
             pausesUpdatesAutomatically: false,
-            showsBackgroundLocationIndicator: true,
           })
+          console.log('[Tracking] GPS segundo plano iniciado')
+        } catch (bgErr) {
+          // Si falla el segundo plano, continuar solo con primer plano
+          console.warn('[Tracking] GPS segundo plano no disponible:', bgErr.message)
         }
-        console.log('[Tracking] GPS segundo plano iniciado ✓')
       }
 
       // También rastrear en primer plano para actualizaciones más frecuentes
