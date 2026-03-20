@@ -5,15 +5,24 @@ import { supabase } from '../lib/supabase'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL
 
+// Registrar Service Worker globalmente una sola vez
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js')
+    .then(reg => console.log('[SW] Registrado:', reg.scope))
+    .catch(err => console.log('[SW] Error al registrar:', err))
+}
+
 export default function Tracking() {
   const { orderId } = useParams()
   const navigate = useNavigate()
   const intervalRef = useRef(null)
+  const swListenerRef = useRef(null)
 
   const [courier, setCourier] = useState(null)
   const [order, setOrder] = useState(null)
   const [loading, setLoading] = useState(true)
   const [tracking, setTracking] = useState(false)
+  const [swActive, setSwActive] = useState(false)
   const [gpsError, setGpsError] = useState('')
   const [delivering, setDelivering] = useState(false)
   const [debugInfo, setDebugInfo] = useState('')
@@ -29,13 +38,37 @@ export default function Tracking() {
     setCourier(courierData)
     fetchOrder()
 
+    // Escuchar cuando el SW pide la ubicación
+    const swMessageHandler = (event) => {
+      if (event.data.type === 'REQUEST_LOCATION') {
+        const swCourier = JSON.parse(localStorage.getItem('courier'))
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            navigator.serviceWorker.controller?.postMessage({
+              type: 'LOCATION_UPDATE',
+              payload: {
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+                courier_id: swCourier.id,
+                order_id: orderId,
+                backendUrl: BACKEND_URL,
+              },
+            })
+          },
+          (err) => console.log('[SW] No se pudo obtener ubicación:', err)
+        )
+      }
+    }
+    navigator.serviceWorker.addEventListener('message', swMessageHandler)
+    swListenerRef.current = swMessageHandler
+
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
-      // Liberar Wake Lock al salir
       if (wakeLockRef.current) {
         wakeLockRef.current.release()
         wakeLockRef.current = null
       }
+      navigator.serviceWorker.removeEventListener('message', swMessageHandler)
     }
   }, [])
 
@@ -73,9 +106,24 @@ export default function Tracking() {
     navigator.geolocation.getCurrentPosition(
       () => {
         setTracking(true)
-        requestWakeLock() // Mantener pantalla encendida
+        requestWakeLock()
         const stored = JSON.parse(localStorage.getItem('courier'))
 
+        // Activar Service Worker para GPS en segundo plano
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({
+            type: 'START_GPS',
+            payload: {
+              courier_id: stored.id,
+              order_id: orderData.id,
+              backendUrl: BACKEND_URL,
+            },
+          })
+          setSwActive(true)
+          console.log('[SW] GPS en segundo plano activado')
+        }
+
+        // Intervalo principal en primer plano (cada 3 segundos)
         intervalRef.current = setInterval(() => {
           navigator.geolocation.getCurrentPosition(
             (pos) => {
@@ -104,7 +152,12 @@ export default function Tracking() {
       clearInterval(intervalRef.current)
       intervalRef.current = null
     }
+    // Detener Service Worker también
+    if (navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: 'STOP_GPS' })
+    }
     setTracking(false)
+    setSwActive(false)
   }
 
   async function markDelivered() {
@@ -163,7 +216,11 @@ export default function Tracking() {
               </span>
               <div>
                 <span className="text-green-700 font-semibold text-sm block">Compartiendo ubicación</span>
-                <span className="text-green-600 text-xs">Mantén esta pantalla abierta</span>
+                <span className="text-green-600 text-xs">
+                  {swActive
+                    ? '📡 GPS activo en segundo plano — puedes minimizar la app'
+                    : 'Mantén esta pantalla abierta'}
+                </span>
               </div>
             </>
           ) : (
