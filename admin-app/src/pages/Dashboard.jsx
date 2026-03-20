@@ -52,6 +52,35 @@ export default function Dashboard() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  // Supabase Realtime — actualizar tabla cuando cambie el estado de un pedido
+  useEffect(() => {
+    const channel = supabase
+      .channel('orders-changes')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'orders' },
+        (payload) => {
+          setOrders(prev =>
+            prev.map(order =>
+              order.id === payload.new.id
+                ? { ...order, ...payload.new }
+                : order
+            )
+          )
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'orders' },
+        () => {
+          fetchData() // recargar para obtener el JOIN con couriers
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [fetchData])
+
   function logout() {
     localStorage.removeItem('admin_auth')
     navigate('/login')
