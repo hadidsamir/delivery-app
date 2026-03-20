@@ -192,7 +192,21 @@ export default function Dashboard() {
                         <p className="text-gray-400 text-xs">{order.client_phone}</p>
                       </td>
                       <td className="px-4 py-3 text-gray-600 max-w-[180px] truncate">{order.delivery_address}</td>
-                      <td className="px-4 py-3 text-gray-700">{order.couriers?.name || <span className="text-gray-300">—</span>}</td>
+                      <td className="px-4 py-3 text-gray-700">
+                        {order.couriers?.name
+                          ? order.couriers.name
+                          : order.status === 'pendiente'
+                            ? (
+                              <button
+                                onClick={() => { setAssignOrder(order); setAssignCourierId('') }}
+                                className="inline-flex items-center gap-1 bg-red-50 hover:bg-red-100 text-red-600 font-semibold text-xs px-2.5 py-1.5 rounded-lg transition-colors animate-pulse"
+                              >
+                                ⚠️ Reasignar
+                              </button>
+                            )
+                            : <span className="text-gray-300">—</span>
+                        }
+                      </td>
                       <td className="px-4 py-3 text-gray-600">
                         {Array.isArray(order.items) ? order.items.length : '—'}
                       </td>
