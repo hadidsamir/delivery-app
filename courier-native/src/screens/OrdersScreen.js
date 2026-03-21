@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList,
-  ActivityIndicator, RefreshControl, Alert, StatusBar, SafeAreaView, Image,
+  ActivityIndicator, RefreshControl, Alert, StatusBar, SafeAreaView, Image, Platform, PermissionsAndroid,
 } from 'react-native'
+import * as Location from 'expo-location'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '../lib/supabase'
 
 export default function OrdersScreen({ navigation }) {
-  const [courier, setCourier] = useState(null)
-  const [orders, setOrders] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [courier, setCourier]     = useState(null)
+  const [orders, setOrders]       = useState([])
+  const [loading, setLoading]     = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
@@ -23,24 +24,15 @@ export default function OrdersScreen({ navigation }) {
     setCourier(data)
     fetchOrders(data.id)
 
-    // Suscripción Realtime: nuevos pedidos asignados
     const channel = supabase
       .channel('native-orders-' + data.id)
-      .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'orders' },
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
+        (payload) => { if (payload.new.courier_id === data.id) fetchOrders(data.id) })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' },
         (payload) => {
-          if (payload.new.courier_id === data.id) fetchOrders(data.id)
-        }
-      )
-      .on('postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'orders' },
-        (payload) => {
-          if (payload.new.courier_id === data.id ||
-              payload.old?.courier_id === data.id) {
+          if (payload.new.courier_id === data.id || payload.old?.courier_id === data.id)
             fetchOrders(data.id)
-          }
-        }
-      )
+        })
       .subscribe()
 
     return () => supabase.removeChannel(channel)
@@ -64,29 +56,55 @@ export default function OrdersScreen({ navigation }) {
   }
 
   async function rejectOrder(orderId) {
-    Alert.alert(
-      'Rechazar pedido',
-      '¿Seguro? El pedido será devuelto al administrador.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Rechazar',
-          style: 'destructive',
-          onPress: async () => {
-            await supabase.from('orders').update({ status: 'pendiente', courier_id: null }).eq('id', orderId)
-            fetchOrders(courier.id)
-          },
+    Alert.alert('Rechazar pedido', 'El pedido volverá al administrador.', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Rechazar', style: 'destructive',
+        onPress: async () => {
+          await supabase.from('orders').update({ status: 'pendiente', courier_id: null }).eq('id', orderId)
+          fetchOrders(courier.id)
         },
-      ]
-    )
+      },
+    ])
+  }
+
+  // ─── Pedir permisos AQUÍ antes de navegar a Tracking ──────────────────────────
+  // Así cuando TrackingScreen inicia, el permiso ya está concedido
+  // y no hay ningún diálogo que interfiera con el inicio del GPS
+  async function handleStartDelivery(order) {
+    try {
+      // 1. Notificaciones (Android 13+)
+      if (Platform.OS === 'android' && Platform.Version >= 33) {
+        await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
+        ).catch(() => {})
+      }
+
+      // 2. Permiso de ubicación — el diálogo se muestra AQUÍ, no en TrackingScreen
+      const { status } = await Location.requestForegroundPermissionsAsync()
+
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permiso de ubicación requerido',
+          'La app necesita acceso a tu ubicación para compartirla con los clientes durante la entrega.',
+          [{ text: 'Entendido' }]
+        )
+        return
+      }
+
+      // 3. Permiso concedido → navegar a Tracking (sin más diálogos)
+      navigation.navigate('Tracking', { order, courier })
+
+    } catch (err) {
+      Alert.alert('Error', 'No se pudo verificar el permiso de ubicación: ' + err.message)
+    }
   }
 
   function handleLogout() {
     Alert.alert('Cerrar sesión', '¿Deseas salir?', [
       { text: 'Cancelar', style: 'cancel' },
       {
-        text: 'Salir',
-        style: 'destructive',
+        text: 'Salir', style: 'destructive',
         onPress: async () => {
           await AsyncStorage.removeItem('courier')
           navigation.replace('Login')
@@ -104,70 +122,55 @@ export default function OrdersScreen({ navigation }) {
     const isPendiente = item.status === 'pendiente'
 
     return (
-      <View style={[styles.orderCard, isPendiente && styles.orderCardPendiente]}>
+      <View style={[styles.card, isPendiente && styles.cardPendiente]}>
         {isPendiente && (
-          <View style={styles.badgePendiente}>
-            <Text style={styles.badgePendienteText}>⏳ Nuevo pedido asignado</Text>
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>Nuevo pedido asignado</Text>
           </View>
         )}
 
-        {/* Dirección */}
         <View style={styles.row}>
-          <Text style={styles.pinIcon}>📍</Text>
+          <Text style={styles.rowIcon}>📍</Text>
           <Text style={styles.address}>{item.delivery_address}</Text>
         </View>
-
-        {/* Cliente */}
         <View style={styles.row}>
-          <Text style={styles.pinIcon}>👤</Text>
-          <Text style={styles.clientName}>{item.client_name}</Text>
+          <Text style={styles.rowIcon}>👤</Text>
+          <Text style={styles.detail}>{item.client_name}</Text>
         </View>
-
-        {/* Teléfono */}
-        {item.client_phone && (
+        {!!item.client_phone && (
           <View style={styles.row}>
-            <Text style={styles.pinIcon}>📞</Text>
-            <Text style={styles.phone}>{item.client_phone}</Text>
+            <Text style={styles.rowIcon}>📞</Text>
+            <Text style={[styles.detail, { color: '#F97316', fontWeight: '700' }]}>{item.client_phone}</Text>
           </View>
         )}
 
-        {/* Items */}
         {item.items?.length > 0 && (
           <View style={styles.itemsBox}>
             <Text style={styles.itemsTitle}>ARTÍCULOS</Text>
             {item.items.map((it, idx) => (
               <Text key={idx} style={styles.itemRow}>
-                <Text style={styles.itemQty}>x{it.qty}  </Text>{it.name}
+                <Text style={{ color: '#F97316', fontWeight: '700' }}>x{it.qty}  </Text>{it.name}
               </Text>
             ))}
           </View>
         )}
 
-        {/* Botones */}
         {isPendiente ? (
-          <View style={styles.buttonRow}>
-            <TouchableOpacity
-              style={styles.rejectBtn}
-              onPress={() => rejectOrder(item.id)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.rejectBtnText}>✕ Rechazar</Text>
+          <View style={styles.btnRow}>
+            <TouchableOpacity style={styles.rejectBtn} onPress={() => rejectOrder(item.id)} activeOpacity={0.8}>
+              <Text style={styles.rejectText}>Rechazar</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.acceptBtn}
-              onPress={() => acceptOrder(item.id)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.acceptBtnText}>✓ Aceptar</Text>
+            <TouchableOpacity style={styles.acceptBtn} onPress={() => acceptOrder(item.id)} activeOpacity={0.8}>
+              <Text style={styles.acceptText}>Aceptar</Text>
             </TouchableOpacity>
           </View>
         ) : (
           <TouchableOpacity
             style={styles.startBtn}
-            onPress={() => navigation.navigate('Tracking', { order: item, courier })}
+            onPress={() => handleStartDelivery(item)}
             activeOpacity={0.8}
           >
-            <Text style={styles.startBtnText}>🛵  Iniciar entrega</Text>
+            <Text style={styles.startText}>Iniciar entrega</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -185,7 +188,6 @@ export default function OrdersScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      {/* Header */}
       <SafeAreaView style={styles.safeHeader}>
         <View style={styles.header}>
           <View style={styles.headerLeft}>
@@ -207,12 +209,7 @@ export default function OrdersScreen({ navigation }) {
         renderItem={renderOrder}
         contentContainerStyle={styles.list}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={['#F97316']}
-            tintColor="#F97316"
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#F97316']} tintColor="#F97316" />
         }
         ListEmptyComponent={
           <View style={styles.empty}>
@@ -226,119 +223,57 @@ export default function OrdersScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB' },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  safeHeader: {
-    backgroundColor: '#fff',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-  },
-  header: {
-    backgroundColor: '#fff',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  logo: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-  },
-  welcome: { fontSize: 12, color: '#6B7280' },
-  courierName: { fontSize: 18, fontWeight: '700', color: '#111827' },
-  logoutBtn: {
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
+  container: { flex: 1, backgroundColor: '#F3F4F6' },
+  centered:  { flex: 1, alignItems: 'center', justifyContent: 'center' },
+
+  safeHeader: { backgroundColor: '#fff', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 4 },
+  header:     { backgroundColor: '#fff', paddingHorizontal: 20, paddingVertical: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  logo:       { width: 40, height: 40, borderRadius: 8 },
+  welcome:    { fontSize: 11, color: '#9CA3AF' },
+  courierName:{ fontSize: 17, fontWeight: '700', color: '#111827' },
+  logoutBtn:  { borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
   logoutText: { fontSize: 13, color: '#6B7280' },
-  list: { padding: 16, gap: 12 },
-  orderCard: {
+
+  list: { padding: 16, gap: 12, paddingBottom: 32 },
+
+  card: {
     backgroundColor: '#fff',
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
     shadowRadius: 6,
-    elevation: 2,
+    gap: 6,
   },
-  orderCardPendiente: {
-    borderWidth: 2,
-    borderColor: '#FCD34D',
-  },
-  badgePendiente: {
-    backgroundColor: '#FEF3C7',
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    alignSelf: 'flex-start',
-    marginBottom: 12,
-  },
-  badgePendienteText: { color: '#92400E', fontSize: 12, fontWeight: '700' },
-  row: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 6 },
-  pinIcon: { fontSize: 14, marginRight: 8, marginTop: 1 },
-  address: { fontSize: 14, fontWeight: '600', color: '#111827', flex: 1 },
-  clientName: { fontSize: 14, color: '#4B5563', flex: 1 },
-  phone: { fontSize: 14, color: '#F97316', fontWeight: '600', flex: 1 },
-  itemsBox: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 10,
-    padding: 10,
-    marginVertical: 8,
-  },
-  itemsTitle: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#9CA3AF',
-    letterSpacing: 0.8,
-    marginBottom: 4,
-  },
-  itemRow: { fontSize: 13, color: '#374151', lineHeight: 20 },
-  itemQty: { color: '#F97316', fontWeight: '700' },
-  buttonRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
-  rejectBtn: {
-    flex: 1,
-    borderWidth: 2,
-    borderColor: '#FCA5A5',
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  rejectBtnText: { color: '#EF4444', fontWeight: '700', fontSize: 14 },
-  acceptBtn: {
-    flex: 1,
-    backgroundColor: '#22C55E',
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  acceptBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  startBtn: {
-    backgroundColor: '#F97316',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  startBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  empty: { alignItems: 'center', paddingTop: 60 },
-  emptyIcon: { fontSize: 48, marginBottom: 12 },
+  cardPendiente: { borderWidth: 2, borderColor: '#FCD34D' },
+
+  badge:     { backgroundColor: '#FEF3C7', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, alignSelf: 'flex-start', marginBottom: 6 },
+  badgeText: { color: '#92400E', fontSize: 12, fontWeight: '700' },
+
+  row:     { flexDirection: 'row', alignItems: 'flex-start' },
+  rowIcon: { fontSize: 14, marginRight: 8, marginTop: 2, width: 20 },
+  address: { fontSize: 14, fontWeight: '600', color: '#111827', flex: 1, lineHeight: 20 },
+  detail:  { fontSize: 14, color: '#4B5563', flex: 1 },
+
+  itemsBox:   { backgroundColor: '#F9FAFB', borderRadius: 10, padding: 10, marginVertical: 4 },
+  itemsTitle: { fontSize: 10, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.8, marginBottom: 4 },
+  itemRow:    { fontSize: 13, color: '#374151', lineHeight: 20 },
+
+  btnRow:    { flexDirection: 'row', gap: 8, marginTop: 6 },
+  rejectBtn: { flex: 1, borderWidth: 2, borderColor: '#FCA5A5', borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
+  rejectText:{ color: '#EF4444', fontWeight: '700', fontSize: 14 },
+  acceptBtn: { flex: 1, backgroundColor: '#22C55E', borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
+  acceptText:{ color: '#fff', fontWeight: '700', fontSize: 14 },
+
+  startBtn:  { backgroundColor: '#F97316', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 6 },
+  startText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+
+  empty:     { alignItems: 'center', paddingTop: 80 },
+  emptyIcon: { fontSize: 52, marginBottom: 14 },
   emptyText: { fontSize: 15, color: '#9CA3AF' },
 })
