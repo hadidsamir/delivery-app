@@ -1,29 +1,74 @@
-import { useRef, useEffect } from 'react'
-import { GoogleMap, useJsApiLoader, Marker } from '@react-google-maps/api'
+import { useRef, useEffect, useState } from 'react'
+import { GoogleMap, useJsApiLoader, Marker, Polyline } from '@react-google-maps/api'
 
 const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY
 
-// ⚠️ Definir fuera del componente para evitar recrear el array en cada render
+// Fuera del componente para evitar recrear en cada render
 const LIBRARIES = []
 
-const DEFAULT_CENTER = { lat: 4.711, lng: -74.0721 } // Bogotá por defecto
+const DEFAULT_CENTER = { lat: 4.711, lng: -74.0721 }
 
 const mapStyles = [
   { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
   { featureType: 'transit', elementType: 'labels', stylers: [{ visibility: 'off' }] },
 ]
 
-function TrackingMap({ courierLocation }) {
+// Geocodifica dirección via REST (sin necesitar la librería geocoding)
+async function geocodeAddress(address) {
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${MAPS_KEY}`
+    const res = await fetch(url)
+    const data = await res.json()
+    if (data.results && data.results.length > 0) {
+      const { lat, lng } = data.results[0].geometry.location
+      return { lat, lng }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+function TrackingMap({ courierLocation, deliveryAddress }) {
   const { isLoaded } = useJsApiLoader({
     googleMapsApiKey: MAPS_KEY,
     libraries: LIBRARIES,
   })
 
   const mapRef = useRef(null)
+  const boundsSetRef = useRef(false)
+  const [destinationCoords, setDestinationCoords] = useState(null)
 
-  // Seguir al mensajero en cada actualización
+  // Geocodificar dirección de entrega una sola vez
   useEffect(() => {
-    if (courierLocation && mapRef.current) {
+    if (!deliveryAddress || destinationCoords) return
+    geocodeAddress(deliveryAddress).then(coords => {
+      if (coords) setDestinationCoords(coords)
+    })
+  }, [deliveryAddress])
+
+  // fitBounds: mostrar ambos marcadores al tener destino
+  useEffect(() => {
+    if (!mapRef.current || !courierLocation || !destinationCoords) return
+    if (boundsSetRef.current) return // solo al inicio
+    const bounds = new window.google.maps.LatLngBounds()
+    bounds.extend(courierLocation)
+    bounds.extend(destinationCoords)
+    mapRef.current.fitBounds(bounds, { top: 80, bottom: 80, left: 40, right: 40 })
+    boundsSetRef.current = true
+  }, [destinationCoords, courierLocation])
+
+  // Seguir al mensajero después del primer fitBounds
+  useEffect(() => {
+    if (!courierLocation || !mapRef.current) return
+    if (!boundsSetRef.current) return
+    if (destinationCoords) {
+      // Recalcular bounds para mantener ambos visibles
+      const bounds = new window.google.maps.LatLngBounds()
+      bounds.extend(courierLocation)
+      bounds.extend(destinationCoords)
+      mapRef.current.fitBounds(bounds, { top: 80, bottom: 80, left: 40, right: 40 })
+    } else {
       mapRef.current.panTo(courierLocation)
     }
   }, [courierLocation])
@@ -36,37 +81,85 @@ function TrackingMap({ courierLocation }) {
     )
   }
 
-  const center = courierLocation || DEFAULT_CENTER
+  const center = courierLocation || destinationCoords || DEFAULT_CENTER
 
   return (
-    <div className="rounded-2xl overflow-hidden shadow-md" style={{ height: 350 }}>
-      <GoogleMap
-        mapContainerStyle={{ width: '100%', height: '100%' }}
-        center={center}
-        zoom={courierLocation ? 16 : 12}
-        onLoad={map => { mapRef.current = map }}
-        options={{
-          styles: mapStyles,
-          disableDefaultUI: true,
-          zoomControl: true,
-        }}
-      >
-        {/* Marcador mensajero — naranja */}
-        {courierLocation && (
-          <Marker
-            position={courierLocation}
-            icon={{
-              path: window.google.maps.SymbolPath.CIRCLE,
-              scale: 12,
-              fillColor: '#F97316',
-              fillOpacity: 1,
-              strokeColor: '#fff',
-              strokeWeight: 3,
-            }}
-            title="Mensajero"
-          />
-        )}
-      </GoogleMap>
+    <div className="space-y-2">
+      <div className="rounded-2xl overflow-hidden shadow-md" style={{ height: 350 }}>
+        <GoogleMap
+          mapContainerStyle={{ width: '100%', height: '100%' }}
+          center={center}
+          zoom={courierLocation ? 15 : 13}
+          onLoad={map => { mapRef.current = map }}
+          options={{
+            styles: mapStyles,
+            disableDefaultUI: true,
+            zoomControl: true,
+          }}
+        >
+          {/* Marcador mensajero — círculo naranja */}
+          {courierLocation && (
+            <Marker
+              position={courierLocation}
+              icon={{
+                path: window.google.maps.SymbolPath.CIRCLE,
+                scale: 12,
+                fillColor: '#F97316',
+                fillOpacity: 1,
+                strokeColor: '#fff',
+                strokeWeight: 3,
+              }}
+              title="Tu mensajero"
+            />
+          )}
+
+          {/* Marcador destino — azul */}
+          {destinationCoords && (
+            <Marker
+              position={destinationCoords}
+              icon={{
+                url: 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png',
+                scaledSize: new window.google.maps.Size(40, 40),
+              }}
+              title="Dirección de entrega"
+            />
+          )}
+
+          {/* Línea punteada naranja entre mensajero y destino */}
+          {courierLocation && destinationCoords && (
+            <Polyline
+              path={[courierLocation, destinationCoords]}
+              options={{
+                strokeColor: '#F97316',
+                strokeOpacity: 0,
+                strokeWeight: 3,
+                icons: [{
+                  icon: {
+                    path: 'M 0,-1 0,1',
+                    strokeOpacity: 0.8,
+                    strokeColor: '#F97316',
+                    scale: 3,
+                  },
+                  offset: '0',
+                  repeat: '15px',
+                }],
+              }}
+            />
+          )}
+        </GoogleMap>
+      </div>
+
+      {/* Leyenda */}
+      <div className="flex items-center justify-center gap-6 text-xs text-gray-500">
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full bg-orange-500 inline-block"></span>
+          <span>Tu mensajero</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-base leading-none">📍</span>
+          <span>Dirección de entrega</span>
+        </div>
+      </div>
     </div>
   )
 }
