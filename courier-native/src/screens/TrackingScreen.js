@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
   View, Text, TouchableOpacity, StyleSheet, Alert,
-  ActivityIndicator, ScrollView, Platform, Linking, PermissionsAndroid,
+  ActivityIndicator, ScrollView, Platform, AppState, PermissionsAndroid,
 } from 'react-native'
 import * as Location from 'expo-location'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -12,26 +12,44 @@ const BACKEND_URL = 'https://delivery-app-production-9c98.up.railway.app'
 
 export default function TrackingScreen({ route, navigation }) {
   const { order, courier } = route.params
-  const [tracking, setTracking] = useState(false)
-  const [bgActive, setBgActive] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [status, setStatus] = useState('iniciando') // 'iniciando' | 'activo' | 'error'
   const [lastUpdate, setLastUpdate] = useState(null)
   const [delivering, setDelivering] = useState(false)
 
-  // Refs para control de estado sin re-renders
-  const foregroundWatchRef = useRef(null)
-  const isStopping = useRef(false)   // evita doble stop
-  const bgStarted = useRef(false)    // resultado real del intento de background
+  // Refs de control
+  const isMounted = useRef(true)
+  const appStateRef = useRef(AppState.currentState)
+  const appStateSub = useRef(null)
+  const lastUpdateInterval = useRef(null)
 
   useEffect(() => {
+    isMounted.current = true
     startTracking()
-    // cleanup: si el componente se desmonta sin haber llamado stopTracking antes
+
+    // Escuchar cuando la app vuelve al foco (ej: usuario regresó de Ajustes)
+    appStateSub.current = AppState.addEventListener('change', handleAppState)
+
     return () => {
-      if (!isStopping.current) {
-        stopTracking()
-      }
+      isMounted.current = false
+      appStateSub.current?.remove()
+      if (lastUpdateInterval.current) clearInterval(lastUpdateInterval.current)
     }
   }, [])
+
+  async function handleAppState(nextState) {
+    const prev = appStateRef.current
+    appStateRef.current = nextState
+
+    // Cuando la app vuelve al frente, verificar que el rastreo sigue activo
+    if (prev.match(/inactive|background/) && nextState === 'active') {
+      const isRunning = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK)
+        .catch(() => false)
+      if (!isRunning && isMounted.current) {
+        // El servicio se cayó — reiniciar
+        await launchForegroundService()
+      }
+    }
+  }
 
   async function requestNotificationPermission() {
     if (Platform.OS !== 'android') return
@@ -44,21 +62,24 @@ export default function TrackingScreen({ route, navigation }) {
     } catch {}
   }
 
-  // Intenta iniciar GPS en segundo plano
-  // Retorna true si tuvo éxito, false si falló
-  async function tryStartBackground() {
+  // Inicia el Foreground Service de localización
+  // Funciona con pantalla apagada y otras apps INDEPENDIENTEMENTE del tipo de permiso
+  // "mientras se usa" = OK porque la notificación es visible para el usuario
+  // "siempre" = OK también
+  async function launchForegroundService() {
     try {
+      // Si ya hay una instancia corriendo, detenerla primero
       const isRunning = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK)
         .catch(() => false)
       if (isRunning) {
         await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => {})
-        await new Promise(r => setTimeout(r, 800))
+        await new Promise(r => setTimeout(r, 600))
       }
 
       await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
         accuracy: Location.Accuracy.High,
-        timeInterval: 8000,
-        distanceInterval: 0,
+        timeInterval: 6000,       // cada 6 segundos
+        distanceInterval: 0,      // siempre actualizar aunque no se mueva
         foregroundService: {
           notificationTitle: '1012Delivery - Rastreo activo',
           notificationBody: 'Compartiendo ubicacion con el cliente',
@@ -66,24 +87,22 @@ export default function TrackingScreen({ route, navigation }) {
         },
         pausesUpdatesAutomatically: false,
         showsBackgroundLocationIndicator: true,
+        // Android: mantener corriendo siempre
+        activityType: Location.ActivityType.AutomotiveNavigation,
       })
 
-      bgStarted.current = true
-      setBgActive(true)
-      console.log('[Tracking] GPS en segundo plano activo')
-      return true
+      if (isMounted.current) setStatus('activo')
+      console.log('[Tracking] Foreground service GPS iniciado correctamente')
     } catch (err) {
-      console.warn('[Tracking] GPS segundo plano no disponible:', err.message)
-      bgStarted.current = false
-      setBgActive(false)
-      return false
+      console.error('[Tracking] Error iniciando foreground service:', err.message)
+      if (isMounted.current) setStatus('error')
+      throw err
     }
   }
 
   async function startTracking() {
-    setLoading(true)
     try {
-      // 1. Permiso de notificaciones
+      // 1. Permiso de notificaciones (Android 13+)
       await requestNotificationPermission()
 
       // 2. Permiso de ubicación en primer plano (obligatorio)
@@ -92,104 +111,69 @@ export default function TrackingScreen({ route, navigation }) {
         Alert.alert(
           'Permiso requerido',
           'Necesitamos acceso a tu ubicacion para compartirla con los clientes.',
-          [{ text: 'OK' }]
+          [{ text: 'OK', onPress: () => navigation.goBack() }]
         )
-        setLoading(false)
         return
       }
 
-      // 3. Guardar en AsyncStorage para la tarea de background
+      // 3. Guardar entrega activa en AsyncStorage (la tarea de background lo lee)
       await AsyncStorage.setItem('activeDelivery', JSON.stringify({
         courier_id: courier.id,
         order_id: order.id,
       }))
 
-      // 4. Si ya tiene permiso "Siempre", intentar GPS en segundo plano
-      const { status: bgStatus } = await Location.getBackgroundPermissionsAsync()
-        .catch(() => ({ status: 'denied' }))
+      // 4. Arrancar el Foreground Service
+      // - Muestra notificación persistente → Android NO lo mata con pantalla apagada
+      // - Funciona igual con permiso "mientras se usa" o "siempre"
+      await launchForegroundService()
 
-      if (bgStatus === 'granted') {
-        await tryStartBackground()
-      }
+      // 5. Iniciar polling de last update desde AsyncStorage
+      startUpdatePoller()
 
-      // 5. Iniciar GPS en primer plano SOLO si el background NO arrancó
-      //    (evita doble envío cuando ambos están activos)
-      if (!bgStarted.current) {
-        foregroundWatchRef.current = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.High,
-            timeInterval: 4000,
-            distanceInterval: 5,
-          },
-          async (loc) => {
-            const { latitude, longitude } = loc.coords
-            try {
-              await fetch(`${BACKEND_URL}/api/location`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  courier_id: courier.id,
-                  order_id: order.id,
-                  latitude,
-                  longitude,
-                }),
-              })
-              setLastUpdate(
-                `${new Date().toLocaleTimeString()} · ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
-              )
-            } catch (err) {
-              console.error('[FG GPS] Error enviando:', err.message)
-            }
-          }
-        )
-      }
-
-      setTracking(true)
     } catch (err) {
-      Alert.alert('Error', 'No se pudo iniciar el GPS: ' + err.message)
-    } finally {
-      setLoading(false)
+      console.error('[startTracking] Error:', err.message)
+      if (isMounted.current) {
+        setStatus('error')
+        Alert.alert('Error GPS', 'No se pudo iniciar el rastreo: ' + err.message)
+      }
     }
   }
 
+  // Muestra la hora de la ultima ubicacion enviada por la tarea de background
+  function startUpdatePoller() {
+    lastUpdateInterval.current = setInterval(async () => {
+      try {
+        const raw = await AsyncStorage.getItem('lastGpsUpdate')
+        if (raw && isMounted.current) setLastUpdate(raw)
+      } catch {}
+    }, 3000)
+  }
+
   async function stopTracking() {
-    // Prevenir doble ejecución
-    if (isStopping.current) return
-    isStopping.current = true
-
     try {
-      // Detener foreground watch si existe
-      if (foregroundWatchRef.current) {
-        foregroundWatchRef.current.remove()
-        foregroundWatchRef.current = null
+      if (lastUpdateInterval.current) {
+        clearInterval(lastUpdateInterval.current)
+        lastUpdateInterval.current = null
       }
-
-      // Detener tarea de background si estaba activa
       const isRunning = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK)
         .catch(() => false)
       if (isRunning) {
         await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => {})
       }
-
-      await AsyncStorage.removeItem('activeDelivery')
-      bgStarted.current = false
-      setBgActive(false)
-      setTracking(false)
+      await AsyncStorage.multiRemove(['activeDelivery', 'lastGpsUpdate'])
     } catch (err) {
       console.error('[stopTracking]', err.message)
-    } finally {
-      isStopping.current = false
     }
   }
 
   async function markDelivered() {
     Alert.alert(
       'Marcar como entregado',
-      'Esto finalizara el rastreo GPS.',
+      'Esto finalizara el rastreo GPS y cerrara esta entrega.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
-          text: 'Confirmar',
+          text: 'Confirmar entrega',
           onPress: async () => {
             setDelivering(true)
             try {
@@ -201,7 +185,6 @@ export default function TrackingScreen({ route, navigation }) {
               navigation.replace('Orders')
             } catch (err) {
               Alert.alert('Error', err.message)
-            } finally {
               setDelivering(false)
             }
           },
@@ -210,16 +193,22 @@ export default function TrackingScreen({ route, navigation }) {
     )
   }
 
+  // Color e icono según estado
+  const statusConfig = {
+    iniciando: { color: '#F59E0B', bg: '#FFFBEB', border: '#FDE68A', label: 'Iniciando GPS...', sub: 'Solicitando permisos' },
+    activo:    { color: '#22C55E', bg: '#F0FDF4', border: '#BBF7D0', label: 'Rastreo activo',  sub: 'Funciona con pantalla apagada y otras apps' },
+    error:     { color: '#EF4444', bg: '#FEF2F2', border: '#FECACA', label: 'Error de GPS',    sub: 'Toca para reintentar' },
+  }
+  const s = statusConfig[status] || statusConfig.iniciando
+
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={async () => {
-            await stopTracking()
-            navigation.goBack()
-          }}
+          onPress={async () => { await stopTracking(); navigation.goBack() }}
           style={styles.backBtn}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <Text style={styles.backText}>‹</Text>
         </TouchableOpacity>
@@ -230,59 +219,45 @@ export default function TrackingScreen({ route, navigation }) {
       <ScrollView contentContainerStyle={styles.content}>
 
         {/* Indicador GPS */}
-        <View style={[styles.gpsCard, tracking ? styles.gpsActive : styles.gpsInactive]}>
-          {loading ? (
-            <ActivityIndicator color="#F97316" size="small" />
-          ) : (
-            <View style={styles.gpsDot}>
-              <View style={[styles.dotInner, tracking ? styles.dotGreen : styles.dotGray]} />
-            </View>
-          )}
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.gpsLabel, tracking ? styles.gpsLabelActive : styles.gpsLabelInactive]}>
-              {loading ? 'Iniciando GPS...' : tracking ? 'Compartiendo ubicacion' : 'GPS inactivo'}
-            </Text>
-            {tracking && (
-              <Text style={styles.gpsSubtitle}>
-                {bgActive
-                  ? 'Funciona con pantalla apagada'
-                  : 'Funciona con la app abierta'}
-              </Text>
-            )}
+        <TouchableOpacity
+          style={[styles.gpsCard, { backgroundColor: s.bg, borderColor: s.border }]}
+          onPress={status === 'error' ? startTracking : undefined}
+          activeOpacity={status === 'error' ? 0.7 : 1}
+        >
+          <View style={styles.gpsDotWrap}>
+            {status === 'iniciando'
+              ? <ActivityIndicator size="small" color={s.color} />
+              : <View style={[styles.gpsDot, { backgroundColor: s.color }]} />
+            }
           </View>
-        </View>
-
-        {/* Aviso informativo si no tiene background */}
-        {tracking && !bgActive && (
-          <TouchableOpacity style={styles.infoBox} onPress={() => Linking.openSettings()}>
-            <Text style={styles.infoTitle}>Modo normal activo</Text>
-            <Text style={styles.infoText}>
-              El GPS funciona mientras la app esta abierta. Para rastreo con pantalla apagada, ve a Ajustes → Ubicacion → "Permitir siempre". (Opcional)
-            </Text>
-          </TouchableOpacity>
-        )}
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.gpsLabel, { color: s.color }]}>{s.label}</Text>
+            <Text style={[styles.gpsSub, { color: s.color, opacity: 0.75 }]}>{s.sub}</Text>
+          </View>
+        </TouchableOpacity>
 
         {/* Ultima actualización */}
-        {lastUpdate && (
+        {lastUpdate ? (
           <View style={styles.lastUpdateBox}>
-            <Text style={styles.lastUpdateText}>Ultimo GPS: {lastUpdate}</Text>
+            <Text style={styles.lastUpdateText}>GPS: {lastUpdate}</Text>
           </View>
-        )}
+        ) : status === 'activo' ? (
+          <View style={styles.lastUpdateBox}>
+            <Text style={styles.lastUpdateText}>Esperando primera ubicacion...</Text>
+          </View>
+        ) : null}
 
         {/* Detalle del pedido */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>DETALLE DEL PEDIDO</Text>
-
           <View style={styles.row}>
             <Text style={styles.rowIcon}>📍</Text>
             <Text style={styles.rowText}>{order.delivery_address}</Text>
           </View>
-
           <View style={styles.row}>
             <Text style={styles.rowIcon}>👤</Text>
             <Text style={styles.rowText}>{order.client_name}</Text>
           </View>
-
           {order.client_phone && (
             <View style={styles.row}>
               <Text style={styles.rowIcon}>📞</Text>
@@ -327,55 +302,31 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: '#fff',
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingTop: Platform.OS === 'android' ? 44 : 56,
+    paddingBottom: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
     elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
   },
   backBtn: { width: 40, alignItems: 'flex-start' },
   backText: { fontSize: 28, color: '#374151', lineHeight: 32 },
   headerTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
-  content: { padding: 16, gap: 12 },
+  content: { padding: 16, gap: 12, paddingBottom: 40 },
   gpsCard: {
     borderRadius: 14,
-    padding: 14,
+    padding: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    borderWidth: 1,
+    gap: 12,
+    borderWidth: 1.5,
   },
-  gpsActive: { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' },
-  gpsInactive: { backgroundColor: '#F9FAFB', borderColor: '#E5E7EB' },
-  gpsDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dotInner: { width: 10, height: 10, borderRadius: 5 },
-  dotGreen: { backgroundColor: '#22C55E' },
-  dotGray: { backgroundColor: '#9CA3AF' },
-  gpsLabel: { fontSize: 14, fontWeight: '700' },
-  gpsLabelActive: { color: '#15803D' },
-  gpsLabelInactive: { color: '#6B7280' },
-  gpsSubtitle: { fontSize: 11, color: '#4ADE80', marginTop: 2 },
-  infoBox: {
-    backgroundColor: '#EFF6FF',
-    borderRadius: 12,
-    padding: 12,
-    borderLeftWidth: 3,
-    borderLeftColor: '#3B82F6',
-  },
-  infoTitle: { fontSize: 13, fontWeight: '700', color: '#1E40AF', marginBottom: 4 },
-  infoText: { fontSize: 12, color: '#1D4ED8', lineHeight: 17 },
+  gpsDotWrap: { width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
+  gpsDot: { width: 12, height: 12, borderRadius: 6 },
+  gpsLabel: { fontSize: 15, fontWeight: '700' },
+  gpsSub: { fontSize: 12, marginTop: 2 },
   lastUpdateBox: {
     backgroundColor: '#F0FDF4',
     borderRadius: 10,
@@ -415,7 +366,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
     marginTop: 8,
-    marginBottom: 24,
   },
   deliveredBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   btnDisabled: { opacity: 0.6 },

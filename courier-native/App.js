@@ -1,7 +1,9 @@
-// IMPORTANTE: importar la tarea ANTES que cualquier componente
+// CRITICO: importar la tarea ANTES que cualquier componente React
+// Android puede reiniciar el proceso y la tarea debe estar registrada
 import './src/lib/backgroundTask'
 
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
+import { View, ActivityIndicator } from 'react-native'
 import { NavigationContainer } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { StatusBar } from 'expo-status-bar'
@@ -16,34 +18,55 @@ import { BACKGROUND_LOCATION_TASK } from './src/lib/backgroundTask'
 const Stack = createNativeStackNavigator()
 
 export default function App() {
+  const [initialRoute, setInitialRoute] = useState(null) // null = cargando
+
   useEffect(() => {
-    cleanupStaleTask()
+    bootstrap()
   }, [])
 
-  // Limpiar tarea de segundo plano si quedó activa de una sesión anterior
-  async function cleanupStaleTask() {
+  async function bootstrap() {
     try {
-      const isRunning = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK)
+      // 1. Limpiar tarea de background si quedó huérfana (sin entrega activa)
+      const isTaskRunning = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK)
         .catch(() => false)
-      if (isRunning) {
-        const stored = await AsyncStorage.getItem('activeDelivery')
-        // Solo limpiar si NO hay una entrega activa válida
-        if (!stored) {
-          await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK)
-          console.log('[App] Tarea GPS obsoleta detenida')
+
+      if (isTaskRunning) {
+        const activeDelivery = await AsyncStorage.getItem('activeDelivery')
+        if (!activeDelivery) {
+          // Tarea huérfana — detener
+          await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => {})
+          console.log('[App] Tarea GPS huérfana detenida')
         }
       }
+
+      // 2. Determinar pantalla inicial
+      const courier = await AsyncStorage.getItem('courier')
+      if (courier) {
+        setInitialRoute('Orders')
+      } else {
+        setInitialRoute('Login')
+      }
     } catch (err) {
-      console.log('[App] Cleanup error (no crítico):', err.message)
+      console.error('[App] Error en bootstrap:', err.message)
+      setInitialRoute('Login')
     }
+  }
+
+  // Pantalla de carga mientras se inicializa
+  if (!initialRoute) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color="#F97316" />
+      </View>
+    )
   }
 
   return (
     <NavigationContainer>
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
       <Stack.Navigator
-        initialRouteName="Login"
-        screenOptions={{ headerShown: false }}
+        initialRouteName={initialRoute}
+        screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
       >
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="Orders" component={OrdersScreen} />

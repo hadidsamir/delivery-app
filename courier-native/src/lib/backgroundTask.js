@@ -4,8 +4,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 export const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION'
 const BACKEND_URL = 'https://delivery-app-production-9c98.up.railway.app'
 
-async function sendLocation(courier_id, order_id, latitude, longitude, retries = 2) {
-  for (let i = 0; i <= retries; i++) {
+async function sendLocation(courier_id, order_id, latitude, longitude) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const res = await fetch(`${BACKEND_URL}/api/location`, {
         method: 'POST',
@@ -13,44 +13,39 @@ async function sendLocation(courier_id, order_id, latitude, longitude, retries =
         body: JSON.stringify({ courier_id, order_id, latitude, longitude }),
       })
       if (res.ok) {
-        console.log(`[BG Task] GPS enviado lat=${latitude.toFixed(4)} lng=${longitude.toFixed(4)}`)
+        // Guardar timestamp del ultimo GPS exitoso para mostrar en UI
+        const time = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        await AsyncStorage.setItem('lastGpsUpdate', `${time}  ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`)
         return
       }
     } catch (err) {
-      if (i === retries) {
-        console.error('[BG Task] Error enviando GPS (sin mas reintentos):', err.message)
+      if (attempt < 2) {
+        await new Promise(r => setTimeout(r, 1200))
       } else {
-        console.warn(`[BG Task] Reintento ${i + 1}...`)
-        await new Promise(r => setTimeout(r, 1000))
+        console.error('[BG Task] GPS no enviado tras 3 intentos:', err.message)
       }
     }
   }
 }
 
-// Define la tarea ANTES de que la app monte cualquier componente
+// IMPORTANTE: defineTask debe ejecutarse al inicio del proceso (antes de montar componentes)
 TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
   if (error) {
-    console.error('[BG Task] Error:', error.message)
+    console.error('[BG Task] Error de localización:', error.message)
     return
   }
+  if (!data?.locations?.length) return
 
-  if (!data) return
-
-  const { locations } = data
-  const location = locations[0]
-  if (!location) return
+  const { latitude, longitude } = data.locations[0].coords
 
   try {
     const stored = await AsyncStorage.getItem('activeDelivery')
-    if (!stored) return
-
+    if (!stored) {
+      console.log('[BG Task] Sin entrega activa - ignorando')
+      return
+    }
     const { courier_id, order_id } = JSON.parse(stored)
-    await sendLocation(
-      courier_id,
-      order_id,
-      location.coords.latitude,
-      location.coords.longitude
-    )
+    await sendLocation(courier_id, order_id, latitude, longitude)
   } catch (err) {
     console.error('[BG Task] Error leyendo AsyncStorage:', err.message)
   }
