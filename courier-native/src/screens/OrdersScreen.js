@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList,
-  ActivityIndicator, RefreshControl, Alert,
+  ActivityIndicator, RefreshControl, Alert, StatusBar, SafeAreaView, Image,
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '../lib/supabase'
@@ -184,16 +184,22 @@ export default function OrdersScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.welcome}>Bienvenido</Text>
-          <Text style={styles.courierName}>{courier?.name}</Text>
+      <SafeAreaView style={styles.safeHeader}>
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <Image source={require('../../assets/icon.png')} style={styles.logo} />
+            <View>
+              <Text style={styles.welcome}>Bienvenido</Text>
+              <Text style={styles.courierName}>{courier?.name}</Text>
+            </View>
+          </View>
+          <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
+            <Text style={styles.logoutText}>Salir</Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
-          <Text style={styles.logoutText}>Salir</Text>
-        </TouchableOpacity>
-      </View>
+      </SafeAreaView>
 
       <FlatList
         data={orders}
@@ -222,20 +228,33 @@ export default function OrdersScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F9FAFB' },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  header: {
+  safeHeader: {
     backgroundColor: '#fff',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
+  },
+  header: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  logo: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
   },
   welcome: { fontSize: 12, color: '#6B7280' },
   courierName: { fontSize: 18, fontWeight: '700', color: '#111827' },

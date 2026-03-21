@@ -15,8 +15,7 @@
       "package": "com.delivery1012.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#000000"
       },
       "permissions": [
         "ACCESS_FINE_LOCATION",
@@ -24,7 +23,12 @@
         "ACCESS_BACKGROUND_LOCATION",
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_LOCATION",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
       ]
     },
     "plugins": [
@@ -39,6 +43,11 @@
         }
       ]
     ],
-    "owner": "hadidsamir"
+    "owner": "hadidsamir",
+    "extra": {
+      "eas": {
+        "projectId": "3587b3f8-be0c-496c-9a58-ec0bf281776b"
+      }
+    }
   }
 }
