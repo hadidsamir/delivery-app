@@ -17,11 +17,20 @@ export default function TrackingScreen({ route, navigation }) {
   const [loading, setLoading] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(null)
   const [delivering, setDelivering] = useState(false)
+
+  // Refs para control de estado sin re-renders
   const foregroundWatchRef = useRef(null)
+  const isStopping = useRef(false)   // evita doble stop
+  const bgStarted = useRef(false)    // resultado real del intento de background
 
   useEffect(() => {
     startTracking()
-    return () => stopTracking()
+    // cleanup: si el componente se desmonta sin haber llamado stopTracking antes
+    return () => {
+      if (!isStopping.current) {
+        stopTracking()
+      }
+    }
   }, [])
 
   async function requestNotificationPermission() {
@@ -35,6 +44,8 @@ export default function TrackingScreen({ route, navigation }) {
     } catch {}
   }
 
+  // Intenta iniciar GPS en segundo plano
+  // Retorna true si tuvo éxito, false si falló
   async function tryStartBackground() {
     try {
       const isRunning = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK)
@@ -43,6 +54,7 @@ export default function TrackingScreen({ route, navigation }) {
         await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => {})
         await new Promise(r => setTimeout(r, 800))
       }
+
       await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
         accuracy: Location.Accuracy.High,
         timeInterval: 8000,
@@ -55,11 +67,16 @@ export default function TrackingScreen({ route, navigation }) {
         pausesUpdatesAutomatically: false,
         showsBackgroundLocationIndicator: true,
       })
+
+      bgStarted.current = true
       setBgActive(true)
       console.log('[Tracking] GPS en segundo plano activo')
+      return true
     } catch (err) {
       console.warn('[Tracking] GPS segundo plano no disponible:', err.message)
+      bgStarted.current = false
       setBgActive(false)
+      return false
     }
   }
 
@@ -81,48 +98,51 @@ export default function TrackingScreen({ route, navigation }) {
         return
       }
 
-      // 3. Guardar en AsyncStorage para la tarea en segundo plano
+      // 3. Guardar en AsyncStorage para la tarea de background
       await AsyncStorage.setItem('activeDelivery', JSON.stringify({
         courier_id: courier.id,
         order_id: order.id,
       }))
 
-      // 4. Intentar segundo plano solo si ya tiene el permiso "Siempre" concedido
-      //    (no se lo pedimos obligatoriamente — funciona igual con "Solo esta app")
+      // 4. Si ya tiene permiso "Siempre", intentar GPS en segundo plano
       const { status: bgStatus } = await Location.getBackgroundPermissionsAsync()
         .catch(() => ({ status: 'denied' }))
+
       if (bgStatus === 'granted') {
         await tryStartBackground()
       }
 
-      // 6. Siempre iniciar watchPosition en primer plano (actualizaciones cuando pantalla ON)
-      foregroundWatchRef.current = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 4000,
-          distanceInterval: 5,
-        },
-        async (loc) => {
-          const { latitude, longitude } = loc.coords
-          try {
-            await fetch(`${BACKEND_URL}/api/location`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                courier_id: courier.id,
-                order_id: order.id,
-                latitude,
-                longitude,
-              }),
-            })
-            setLastUpdate(
-              `${new Date().toLocaleTimeString()} · ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
-            )
-          } catch (err) {
-            console.error('[FG GPS] Error enviando:', err.message)
+      // 5. Iniciar GPS en primer plano SOLO si el background NO arrancó
+      //    (evita doble envío cuando ambos están activos)
+      if (!bgStarted.current) {
+        foregroundWatchRef.current = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.High,
+            timeInterval: 4000,
+            distanceInterval: 5,
+          },
+          async (loc) => {
+            const { latitude, longitude } = loc.coords
+            try {
+              await fetch(`${BACKEND_URL}/api/location`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  courier_id: courier.id,
+                  order_id: order.id,
+                  latitude,
+                  longitude,
+                }),
+              })
+              setLastUpdate(
+                `${new Date().toLocaleTimeString()} · ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
+              )
+            } catch (err) {
+              console.error('[FG GPS] Error enviando:', err.message)
+            }
           }
-        }
-      )
+        )
+      }
 
       setTracking(true)
     } catch (err) {
@@ -133,21 +153,32 @@ export default function TrackingScreen({ route, navigation }) {
   }
 
   async function stopTracking() {
+    // Prevenir doble ejecución
+    if (isStopping.current) return
+    isStopping.current = true
+
     try {
+      // Detener foreground watch si existe
       if (foregroundWatchRef.current) {
         foregroundWatchRef.current.remove()
         foregroundWatchRef.current = null
       }
+
+      // Detener tarea de background si estaba activa
       const isRunning = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK)
         .catch(() => false)
       if (isRunning) {
-        await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK)
+        await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => {})
       }
+
       await AsyncStorage.removeItem('activeDelivery')
+      bgStarted.current = false
       setBgActive(false)
       setTracking(false)
     } catch (err) {
       console.error('[stopTracking]', err.message)
+    } finally {
+      isStopping.current = false
     }
   }
 
@@ -179,16 +210,17 @@ export default function TrackingScreen({ route, navigation }) {
     )
   }
 
-  async function stopAndGoBack() {
-    await stopTracking()
-    navigation.goBack()
-  }
-
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={stopAndGoBack} style={styles.backBtn}>
+        <TouchableOpacity
+          onPress={async () => {
+            await stopTracking()
+            navigation.goBack()
+          }}
+          style={styles.backBtn}
+        >
           <Text style={styles.backText}>‹</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Entrega activa</Text>
@@ -214,18 +246,18 @@ export default function TrackingScreen({ route, navigation }) {
               <Text style={styles.gpsSubtitle}>
                 {bgActive
                   ? 'Funciona con pantalla apagada'
-                  : 'Solo funciona con pantalla encendida — activa permiso "Siempre"'}
+                  : 'Funciona con la app abierta'}
               </Text>
             )}
           </View>
         </View>
 
-        {/* Aviso si no tiene background */}
+        {/* Aviso informativo si no tiene background */}
         {tracking && !bgActive && (
-          <TouchableOpacity style={styles.warningBox} onPress={() => Linking.openSettings()}>
-            <Text style={styles.warningTitle}>Modo normal activo</Text>
-            <Text style={styles.warningText}>
-              El GPS funciona mientras la app esta abierta. Si quieres que funcione con la pantalla apagada, ve a Ajustes → Ubicacion → "Permitir siempre". (Opcional)
+          <TouchableOpacity style={styles.infoBox} onPress={() => Linking.openSettings()}>
+            <Text style={styles.infoTitle}>Modo normal activo</Text>
+            <Text style={styles.infoText}>
+              El GPS funciona mientras la app esta abierta. Para rastreo con pantalla apagada, ve a Ajustes → Ubicacion → "Permitir siempre". (Opcional)
             </Text>
           </TouchableOpacity>
         )}
@@ -335,15 +367,15 @@ const styles = StyleSheet.create({
   gpsLabelActive: { color: '#15803D' },
   gpsLabelInactive: { color: '#6B7280' },
   gpsSubtitle: { fontSize: 11, color: '#4ADE80', marginTop: 2 },
-  warningBox: {
-    backgroundColor: '#FEF3C7',
+  infoBox: {
+    backgroundColor: '#EFF6FF',
     borderRadius: 12,
     padding: 12,
     borderLeftWidth: 3,
-    borderLeftColor: '#F59E0B',
+    borderLeftColor: '#3B82F6',
   },
-  warningTitle: { fontSize: 13, fontWeight: '700', color: '#92400E', marginBottom: 4 },
-  warningText: { fontSize: 12, color: '#78350F', lineHeight: 17 },
+  infoTitle: { fontSize: 13, fontWeight: '700', color: '#1E40AF', marginBottom: 4 },
+  infoText: { fontSize: 12, color: '#1D4ED8', lineHeight: 17 },
   lastUpdateBox: {
     backgroundColor: '#F0FDF4',
     borderRadius: 10,
@@ -383,6 +415,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
     marginTop: 8,
+    marginBottom: 24,
   },
   deliveredBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   btnDisabled: { opacity: 0.6 },
