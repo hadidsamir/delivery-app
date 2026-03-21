@@ -93,6 +93,14 @@ app.get('/api/order/:token', async (req, res) => {
     return res.status(404).json({ error: 'Pedido no encontrado' });
   }
 
+  // Verificar expiración: 1 hora después de entregado
+  if (order.status === 'entregado' && order.delivered_at) {
+    const horasTranscurridas = (Date.now() - new Date(order.delivered_at).getTime()) / 1000 / 3600;
+    if (horasTranscurridas >= 1) {
+      return res.status(410).json({ error: 'El link de rastreo ha expirado' });
+    }
+  }
+
   // 2. Contar pedidos activos del mensajero
   const { count, error: countError } = await supabase
     .from('orders')
@@ -181,7 +189,11 @@ app.put('/api/order/:id/status', async (req, res) => {
     return res.status(400).json({ error: `Status inválido. Debe ser: ${validStatuses.join(', ')}` });
   }
 
+  // Si se marca como entregado, guardar timestamp exacto
   const updateData = { status };
+  if (status === 'entregado') {
+    updateData.delivered_at = new Date().toISOString();
+  }
 
   const { data, error } = await supabase
     .from('orders')

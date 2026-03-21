@@ -91,7 +91,9 @@ export function useOrderTracking(token) {
         })
       } catch (err) {
         if (cancelled) return
-        if (err.response?.status === 404) {
+        if (err.response?.status === 410) {
+          setState(s => ({ ...s, status: 'error', errorMessage: 'Este link de rastreo ha expirado' }))
+        } else if (err.response?.status === 404) {
           setState(s => ({ ...s, status: 'error', errorMessage: 'Pedido no encontrado' }))
         } else {
           setState(s => ({ ...s, status: 'error', errorMessage: 'Error de conexión, intenta de nuevo' }))
