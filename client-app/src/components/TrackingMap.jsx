@@ -29,7 +29,44 @@ async function geocodeAddress(address) {
   }
 }
 
-function TrackingMap({ courierLocation, deliveryAddress, deliveryLat, deliveryLng }) {
+function GpsStatus({ lastLocationTime }) {
+  const [secondsAgo, setSecondsAgo] = useState(0)
+
+  useEffect(() => {
+    if (!lastLocationTime) return
+    const update = () => setSecondsAgo(Math.floor((Date.now() - lastLocationTime) / 1000))
+    update()
+    const id = setInterval(update, 5000)
+    return () => clearInterval(id)
+  }, [lastLocationTime])
+
+  if (!lastLocationTime) return null
+
+  const isLive = secondsAgo < 30
+
+  if (isLive) {
+    return (
+      <div className="flex items-center justify-center gap-1.5 text-xs text-green-600 font-medium">
+        <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse inline-block" />
+        En vivo
+      </div>
+    )
+  }
+
+  const mins = Math.floor(secondsAgo / 60)
+  const label = mins < 1 ? 'hace menos de 1 min' : mins === 1 ? 'hace 1 min' : `hace ${mins} min`
+
+  return (
+    <div className="flex items-center justify-center gap-1.5 text-xs text-yellow-600 font-medium bg-yellow-50 border border-yellow-200 rounded-xl px-3 py-1.5">
+      <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+      </svg>
+      GPS pausado · última posición {label}
+    </div>
+  )
+}
+
+function TrackingMap({ courierLocation, deliveryAddress, deliveryLat, deliveryLng, lastLocationTime }) {
   const { isLoaded } = useJsApiLoader({
     googleMapsApiKey: MAPS_KEY,
     libraries: LIBRARIES,
@@ -152,6 +189,9 @@ function TrackingMap({ courierLocation, deliveryAddress, deliveryLat, deliveryLn
           )}
         </GoogleMap>
       </div>
+
+      {/* Estado GPS */}
+      <GpsStatus lastLocationTime={lastLocationTime} />
 
       {/* Leyenda */}
       <div className="flex items-center justify-center gap-6 text-xs text-gray-500">

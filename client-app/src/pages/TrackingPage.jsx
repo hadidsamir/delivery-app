@@ -30,7 +30,7 @@ function ErrorScreen({ message }) {
 
 function TrackingPage() {
   const { token } = useParams()
-  const { status, order, courier, totalActiveOrders, courierLocation, errorMessage } = useOrderTracking(token)
+  const { status, order, courier, totalActiveOrders, courierLocation, lastLocationTime, errorMessage } = useOrderTracking(token)
 
   if (status === 'loading') return <LoadingScreen />
   if (status === 'error') return <ErrorScreen message={errorMessage} />
@@ -55,6 +55,7 @@ function TrackingPage() {
           deliveryAddress={order?.delivery_address}
           deliveryLat={order?.delivery_lat}
           deliveryLng={order?.delivery_lng}
+          lastLocationTime={lastLocationTime}
         />
 
         {/* Detalle del pedido */}

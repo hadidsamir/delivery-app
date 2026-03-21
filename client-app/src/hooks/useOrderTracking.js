@@ -11,6 +11,7 @@ export function useOrderTracking(token) {
     courier: null,
     totalActiveOrders: 1,
     courierLocation: null,
+    lastLocationTime: null,
     errorMessage: '',
   })
 
@@ -55,6 +56,7 @@ export function useOrderTracking(token) {
           courier,
           totalActiveOrders,
           courierLocation: initialLocation,
+          lastLocationTime: initialLocation ? Date.now() : null,
         }))
 
         // Conectar WebSocket — polling primero para compatibilidad con Railway/proxies
@@ -83,7 +85,7 @@ export function useOrderTracking(token) {
 
         socket.on('location:update', ({ latitude, longitude }) => {
           console.log('[Socket] Ubicación recibida:', latitude, longitude)
-          setState(s => ({ ...s, courierLocation: { lat: latitude, lng: longitude } }))
+          setState(s => ({ ...s, courierLocation: { lat: latitude, lng: longitude }, lastLocationTime: Date.now() }))
         })
 
         socket.on('order:delivered', () => {
