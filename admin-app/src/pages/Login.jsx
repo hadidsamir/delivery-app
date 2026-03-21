@@ -35,14 +35,7 @@ export default function Login() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-black dark:bg-white rounded-3xl shadow-2xl mb-4">
-            <div className="text-center">
-              <div className="text-2xl font-black text-white dark:text-black leading-none tracking-tighter">10</div>
-              <div className="text-[11px] font-black text-orange-400 dark:text-orange-500 leading-none tracking-widest">.12</div>
-            </div>
-          </div>
-          <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">1012</h1>
-          <p className="text-sm font-bold text-orange-500 tracking-[0.25em] uppercase mt-0.5">Delivery</p>
+          <img src="/logo.png" alt="1012 Delivery" className="h-28 w-auto object-contain mx-auto mb-2" />
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">Panel de Administración</p>
         </div>
 
