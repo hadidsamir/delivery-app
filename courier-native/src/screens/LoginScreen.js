@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ActivityIndicator, KeyboardAvoidingView, Platform, Alert,
+  ActivityIndicator, KeyboardAvoidingView, Platform, Alert, Image,
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '../lib/supabase'
@@ -13,7 +13,7 @@ export default function LoginScreen({ navigation }) {
   async function handleLogin() {
     const phoneClean = phone.trim()
     if (!phoneClean) {
-      Alert.alert('Error', 'Ingresa tu número de teléfono')
+      Alert.alert('Error', 'Ingresa tu numero de telefono')
       return
     }
 
@@ -27,14 +27,14 @@ export default function LoginScreen({ navigation }) {
         .single()
 
       if (error || !data) {
-        Alert.alert('Error', 'Mensajero no encontrado. Verifica tu número.')
+        Alert.alert('Error', 'Mensajero no encontrado. Verifica tu numero.')
         return
       }
 
       await AsyncStorage.setItem('courier', JSON.stringify(data))
       navigation.replace('Orders')
     } catch (err) {
-      Alert.alert('Error', 'Error de conexión. Intenta de nuevo.')
+      Alert.alert('Error', 'Error de conexion. Intenta de nuevo.')
     } finally {
       setLoading(false)
     }
@@ -45,14 +45,19 @@ export default function LoginScreen({ navigation }) {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <View style={styles.card}>
-        {/* Logo / ícono */}
-        <View style={styles.iconCircle}>
-          <Text style={styles.iconText}>🛵</Text>
-        </View>
+      {/* Logo */}
+      <View style={styles.logoBox}>
+        <Image
+          source={require('../../assets/icon.png')}
+          style={styles.logoImage}
+          resizeMode="contain"
+        />
+      </View>
 
-        <Text style={styles.title}>Mensajero</Text>
-        <Text style={styles.subtitle}>Ingresa con tu número de teléfono</Text>
+      {/* Card de login */}
+      <View style={styles.card}>
+        <Text style={styles.title}>Bienvenido</Text>
+        <Text style={styles.subtitle}>Ingresa con tu numero de telefono</Text>
 
         <TextInput
           style={styles.input}
@@ -85,37 +90,30 @@ export default function LoginScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#000000',
     justifyContent: 'center',
     padding: 24,
   },
+  logoBox: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  logoImage: {
+    width: 200,
+    height: 200,
+  },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: '#111111',
     borderRadius: 20,
     padding: 28,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#222222',
     alignItems: 'center',
-  },
-  iconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#FFF7ED',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  iconText: {
-    fontSize: 40,
   },
   title: {
-    fontSize: 26,
+    fontSize: 22,
     fontWeight: '700',
-    color: '#111827',
+    color: '#FFFFFF',
     marginBottom: 6,
   },
   subtitle: {
@@ -127,13 +125,13 @@ const styles = StyleSheet.create({
   input: {
     width: '100%',
     borderWidth: 1.5,
-    borderColor: '#E5E7EB',
+    borderColor: '#333333',
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
-    color: '#111827',
-    backgroundColor: '#F9FAFB',
+    color: '#FFFFFF',
+    backgroundColor: '#1A1A1A',
     marginBottom: 16,
   },
   button: {
@@ -143,9 +141,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
   },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
+  buttonDisabled: { opacity: 0.6 },
   buttonText: {
     color: '#fff',
     fontSize: 16,

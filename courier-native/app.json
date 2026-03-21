@@ -1,18 +1,18 @@
 {
   "expo": {
-    "name": "Mensajero",
-    "slug": "mensajero-app",
-    "version": "1.0.0",
+    "name": "1012Delivery",
+    "slug": "1012delivery",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#F97316"
+      "backgroundColor": "#000000"
     },
     "android": {
-      "package": "com.tuempresa.mensajero",
+      "package": "com.delivery1012.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
