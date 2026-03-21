@@ -203,7 +203,7 @@ export default function NewOrder() {
                     min="1"
                     value={item.qty}
                     onChange={e => updateItem(idx, 'qty', e.target.value)}
-                    className={inputClass + " w-20 text-center"}
+                    className={inputClass + " !w-16 shrink-0 text-center"}
                   />
                   {items.length > 1 && (
                     <button
