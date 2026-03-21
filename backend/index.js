@@ -4,18 +4,42 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const { createClient } = require('@supabase/supabase-js');
 
-// ── Supabase ──────────────────────────────────────────────────────────────────
+// ── Supabase ───────────────────────────────────────────────────────────────────
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
 );
 
-// ── Express + HTTP + Socket.io ────────────────────────────────────────────────
+// ── Express + HTTP + Socket.io ─────────────────────────────────────────────────
 const app = express();
 const server = http.createServer(app);
 const allowedOrigins = (process.env.CORS_ORIGIN || '*').split(',').map(o => o.trim());
+
+// ── Seguridad: headers HTTP ────────────────────────────────────────────────────
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
+
+// ── Rate limiting ──────────────────────────────────────────────────────────────
+// General: 200 req / 15 min por IP
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas solicitudes. Intenta más tarde.' },
+}));
+
+// GPS: máximo 60 req / min (1 por segundo, con holgura)
+const locationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  message: { error: 'Límite de actualizaciones GPS alcanzado.' },
+});
 
 const io = new Server(server, {
   cors: {
@@ -34,9 +58,8 @@ const corsOptions = {
   optionsSuccessStatus: 200,
 };
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // preflight explícito para todas las rutas
+app.options('*', cors(corsOptions));
 
-// Middleware CORS explícito — maneja preflight OPTIONS en producción
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
@@ -44,20 +67,39 @@ app.use((req, res, next) => {
   }
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
   next();
 });
 
-app.use(express.json());
+app.use(express.json({ limit: '10kb' }));
 
-// ── Socket.io ─────────────────────────────────────────────────────────────────
+// ── Helpers de validación ──────────────────────────────────────────────────────
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isValidUUID = (v) => UUID_RE.test(v);
+const isValidCoord = (lat, lng) =>
+  typeof lat === 'number' && typeof lng === 'number' &&
+  lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+
+// ── Socket.io ──────────────────────────────────────────────────────────────────
 io.on('connection', (socket) => {
   console.log(`[socket] cliente conectado: ${socket.id}`);
 
-  // El cliente envía { order_id } para unirse al room de su pedido
-  socket.on('join:order', (order_id) => {
+  // El cliente envía { order_id, token } — verificamos que el token corresponda
+  socket.on('join:order', async ({ order_id, token }) => {
+    if (!order_id || !token) return;
+
+    const { data: order } = await supabase
+      .from('orders')
+      .select('id')
+      .eq('id', order_id)
+      .eq('tracking_token', token)
+      .single();
+
+    if (!order) {
+      socket.emit('error:auth', { message: 'Token inválido' });
+      return;
+    }
+
     const room = `order_${order_id}`;
     socket.join(room);
     console.log(`[socket] ${socket.id} se unió al room ${room}`);
@@ -68,24 +110,44 @@ io.on('connection', (socket) => {
   });
 });
 
-// ── GET /api/order/:token ─────────────────────────────────────────────────────
-// Busca el pedido por tracking_token, incluye datos del mensajero y
-// cuenta cuántos pedidos activos (en_camino) tiene ese mensajero.
+// ── POST /api/courier/login ────────────────────────────────────────────────────
+// Login de mensajero con teléfono + PIN. No expone el PIN en la respuesta.
+app.post('/api/courier/login', rateLimit({ windowMs: 15 * 60 * 1000, max: 20, message: { error: 'Demasiados intentos. Espera 15 minutos.' } }), async (req, res) => {
+  const { phone, pin } = req.body;
+
+  if (!phone || !pin) {
+    return res.status(400).json({ error: 'Teléfono y PIN son requeridos' });
+  }
+
+  const cleanPhone = String(phone).trim().slice(0, 20);
+  const cleanPin = String(pin).trim().slice(0, 10);
+
+  const { data: courier, error } = await supabase
+    .from('couriers')
+    .select('id, name, phone, photo_url, is_active')
+    .eq('phone', cleanPhone)
+    .eq('pin', cleanPin)
+    .eq('is_active', true)
+    .single();
+
+  if (error || !courier) {
+    return res.status(401).json({ error: 'Teléfono o PIN incorrecto' });
+  }
+
+  return res.json({ courier });
+});
+
+// ── GET /api/order/:token ──────────────────────────────────────────────────────
 app.get('/api/order/:token', async (req, res) => {
   const { token } = req.params;
 
-  // 1. Traer el pedido con su mensajero
+  if (!token || token.length > 200) {
+    return res.status(400).json({ error: 'Token inválido' });
+  }
+
   const { data: order, error } = await supabase
     .from('orders')
-    .select(`
-      *,
-      couriers (
-        id,
-        name,
-        phone,
-        photo_url
-      )
-    `)
+    .select(`*, couriers(id, name, phone, photo_url)`)
     .eq('tracking_token', token)
     .single();
 
@@ -101,18 +163,12 @@ app.get('/api/order/:token', async (req, res) => {
     }
   }
 
-  // 2. Contar pedidos activos del mensajero
-  const { count, error: countError } = await supabase
+  const { count } = await supabase
     .from('orders')
     .select('id', { count: 'exact', head: true })
     .eq('courier_id', order.courier_id)
     .eq('status', 'en_camino');
 
-  if (countError) {
-    return res.status(500).json({ error: 'Error al contar pedidos activos' });
-  }
-
-  // 3. Traer última ubicación conocida del mensajero para este pedido
   const { data: location } = await supabase
     .from('courier_locations')
     .select('latitude, longitude, updated_at')
@@ -128,28 +184,27 @@ app.get('/api/order/:token', async (req, res) => {
   });
 });
 
-// ── POST /api/location ────────────────────────────────────────────────────────
-// Recibe { courier_id, order_id, latitude, longitude },
-// hace upsert en courier_locations y emite 'location:update' al room.
-app.post('/api/location', async (req, res) => {
+// ── POST /api/location ─────────────────────────────────────────────────────────
+app.post('/api/location', locationLimiter, async (req, res) => {
   const { courier_id, order_id, latitude, longitude } = req.body;
 
-  if (!courier_id || !order_id || latitude == null || longitude == null) {
+  if (!courier_id || !order_id) {
     return res.status(400).json({ error: 'Faltan campos requeridos' });
   }
+  if (!isValidUUID(courier_id) || !isValidUUID(order_id)) {
+    return res.status(400).json({ error: 'IDs inválidos' });
+  }
 
-  console.log(`[GPS] courier=${courier_id} | lat=${latitude} lng=${longitude}`);
+  const lat = parseFloat(latitude);
+  const lng = parseFloat(longitude);
+  if (!isValidCoord(lat, lng)) {
+    return res.status(400).json({ error: 'Coordenadas GPS inválidas' });
+  }
 
   const updated_at = new Date().toISOString();
 
-  // Emitir al room del pedido inmediatamente (tiempo real)
-  io.to(`order_${order_id}`).emit('location:update', {
-    latitude,
-    longitude,
-    updated_at,
-  });
+  io.to(`order_${order_id}`).emit('location:update', { latitude: lat, longitude: lng, updated_at });
 
-  // Persistir en BD: update si existe, insert si no
   const { data: existing } = await supabase
     .from('courier_locations')
     .select('id')
@@ -157,39 +212,34 @@ app.post('/api/location', async (req, res) => {
     .limit(1)
     .single();
 
-  let error;
   if (existing) {
-    const { error: updateError } = await supabase
+    await supabase
       .from('courier_locations')
-      .update({ courier_id, latitude, longitude, updated_at })
+      .update({ courier_id, latitude: lat, longitude: lng, updated_at })
       .eq('order_id', order_id);
-    error = updateError;
   } else {
-    const { error: insertError } = await supabase
+    await supabase
       .from('courier_locations')
-      .insert({ courier_id, order_id, latitude, longitude, updated_at });
-    error = insertError;
-  }
-
-  if (error) {
-    console.error('[location] error upsert:', error.message);
+      .insert({ courier_id, order_id, latitude: lat, longitude: lng, updated_at });
   }
 
   return res.json({ ok: true });
 });
 
-// ── PUT /api/order/:id/status ─────────────────────────────────────────────────
-// Actualiza el campo status del pedido.
+// ── PUT /api/order/:id/status ──────────────────────────────────────────────────
 app.put('/api/order/:id/status', async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
-  const validStatuses = ['pendiente', 'en_camino', 'entregado'];
+  if (!isValidUUID(id)) {
+    return res.status(400).json({ error: 'ID de pedido inválido' });
+  }
+
+  const validStatuses = ['pendiente', 'en_camino', 'entregado', 'cancelado'];
   if (!validStatuses.includes(status)) {
     return res.status(400).json({ error: `Status inválido. Debe ser: ${validStatuses.join(', ')}` });
   }
 
-  // Si se marca como entregado, guardar timestamp exacto
   const updateData = { status };
   if (status === 'entregado') {
     updateData.delivered_at = new Date().toISOString();
@@ -203,16 +253,15 @@ app.put('/api/order/:id/status', async (req, res) => {
     .single();
 
   if (error || !data) {
-    return res.status(500).json({ error: 'No se pudo actualizar el status' });
+    return res.status(500).json({ error: 'No se pudo actualizar el estado' });
   }
 
-  // Notificar al room del pedido sobre el cambio de status
   io.to(`order_${id}`).emit('status:update', { status, updated_at: new Date().toISOString() });
 
   return res.json({ order: data });
 });
 
-// ── Arrancar servidor ─────────────────────────────────────────────────────────
+// ── Arrancar servidor ──────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`[server] corriendo en http://localhost:${PORT}`);

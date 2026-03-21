@@ -22,7 +22,7 @@ export default function Couriers() {
   const [showModal, setShowModal] = useState(false)
   const [editCourier, setEditCourier] = useState(null)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ name: '', phone: '', photo_url: '', is_active: true })
+  const [form, setForm] = useState({ name: '', phone: '', pin: '', photo_url: '', is_active: true })
 
   const fetchCouriers = useCallback(async () => {
     setLoading(true)
@@ -47,6 +47,7 @@ export default function Couriers() {
     setForm({
       name: courier.name || '',
       phone: courier.phone || '',
+      pin: courier.pin || '',
       photo_url: courier.photo_url || '',
       is_active: courier.is_active,
     })
@@ -56,9 +57,14 @@ export default function Couriers() {
   async function handleSave(e) {
     e.preventDefault()
     setSaving(true)
+    if (!form.pin.trim() || form.pin.trim().length < 4) {
+      setSaving(false)
+      return alert('El PIN debe tener al menos 4 caracteres')
+    }
     const payload = {
       name: form.name.trim(),
       phone: form.phone.trim(),
+      pin: form.pin.trim(),
       photo_url: form.photo_url.trim() || null,
       is_active: form.is_active,
     }
@@ -239,6 +245,22 @@ export default function Couriers() {
                   onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
                   className="w-full border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600"
                   placeholder="300-123-4567"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  PIN de acceso *
+                  <span className="ml-2 text-xs text-gray-400 font-normal">El mensajero lo usa para ingresar a la app</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={form.pin}
+                  onChange={e => setForm(f => ({ ...f, pin: e.target.value }))}
+                  className="w-full border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 font-mono tracking-widest"
+                  placeholder="Ej: 1234"
+                  maxLength={10}
                 />
               </div>
 

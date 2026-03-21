@@ -70,7 +70,7 @@ export function useOrderTracking(token) {
 
         socket.on('connect', () => {
           console.log('[Socket] Conectado:', socket.id)
-          socket.emit('join:order', order.id)
+          socket.emit('join:order', { order_id: order.id, token })
         })
 
         socket.on('disconnect', (reason) => {

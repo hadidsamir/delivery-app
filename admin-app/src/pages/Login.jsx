@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
 import { useTheme } from '../hooks/useTheme'
 import ThemeToggle from '../components/ThemeToggle'
 
 export default function Login() {
-  const [user, setUser] = useState('')
+  const [email, setEmail] = useState('')
   const [pass, setPass] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -13,21 +14,27 @@ export default function Login() {
 
   async function handleSubmit(e) {
     e.preventDefault()
+    setError('')
     setLoading(true)
-    await new Promise(r => setTimeout(r, 400))
-    if (user === 'admin' && pass === 'admin123') {
-      localStorage.setItem('admin_auth', 'true')
-      navigate('/dashboard')
-    } else {
-      setError('Usuario o contraseña incorrectos')
-    }
+
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password: pass,
+    })
+
     setLoading(false)
+
+    if (authError) {
+      setError('Correo o contraseña incorrectos')
+      return
+    }
+
+    navigate('/dashboard')
   }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center p-4 transition-colors duration-300">
 
-      {/* Toggle tema */}
       <div className="fixed top-4 right-4">
         <ThemeToggle dark={dark} onToggle={toggleTheme} />
       </div>
@@ -44,14 +51,14 @@ export default function Login() {
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                Usuario
+                Correo electrónico
               </label>
               <input
-                type="text"
-                value={user}
-                onChange={e => { setUser(e.target.value); setError('') }}
+                type="email"
+                value={email}
+                onChange={e => { setEmail(e.target.value); setError('') }}
                 className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all text-sm"
-                placeholder="Ingresa tu usuario"
+                placeholder="admin@tuempresa.com"
                 required
               />
             </div>
@@ -99,10 +106,6 @@ export default function Login() {
             </button>
           </form>
         </div>
-
-        <p className="text-center text-xs text-gray-400 dark:text-gray-600 mt-6">
-          © 2024 1012 Delivery · Todos los derechos reservados
-        </p>
       </div>
     </div>
   )
