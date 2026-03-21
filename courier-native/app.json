@@ -39,11 +39,6 @@
         }
       ]
     ],
-    "extra": {
-      "eas": {
-        "projectId": "8334b5b4-8753-4a6e-8c45-35b7b88299ac"
-      }
-    },
     "owner": "hadidsamir"
   }
 }
