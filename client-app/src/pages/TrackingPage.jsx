@@ -53,6 +53,8 @@ function TrackingPage() {
         <TrackingMap
           courierLocation={courierLocation}
           deliveryAddress={order?.delivery_address}
+          deliveryLat={order?.delivery_lat}
+          deliveryLng={order?.delivery_lng}
         />
 
         {/* Detalle del pedido */}

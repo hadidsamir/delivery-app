@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import AddressAutocomplete from '../components/AddressAutocomplete'
 
 export default function NewOrder() {
   const navigate = useNavigate()
@@ -12,6 +13,7 @@ export default function NewOrder() {
     delivery_address: '',
     courier_id: '',
   })
+  const [deliveryCoords, setDeliveryCoords] = useState(null)
   const [items, setItems] = useState([{ name: '', qty: 1 }])
 
   useEffect(() => {
@@ -53,6 +55,8 @@ export default function NewOrder() {
       status: 'pendiente',
       items: validItems.map(i => ({ name: i.name, qty: Number(i.qty) })),
       delivery_order: 1,
+      delivery_lat: deliveryCoords?.lat ?? null,
+      delivery_lng: deliveryCoords?.lng ?? null,
     })
 
     setLoading(false)
@@ -103,14 +107,21 @@ export default function NewOrder() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Dirección de entrega *</label>
-            <input
-              type="text"
-              required
+            <AddressAutocomplete
               value={form.delivery_address}
-              onChange={e => setField('delivery_address', e.target.value)}
+              onChange={v => setField('delivery_address', v)}
+              onSelect={({ address, lat, lng }) => {
+                setField('delivery_address', address)
+                setDeliveryCoords({ lat, lng })
+              }}
+              placeholder="Ej: Calle 80 # 45-32, Valledupar"
               className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-              placeholder="Calle 80 # 45-32, Medellín"
             />
+            {deliveryCoords && (
+              <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                <span>✓</span> Coordenadas obtenidas — el mapa será más preciso
+              </p>
+            )}
           </div>
 
           <div>

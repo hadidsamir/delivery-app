@@ -29,7 +29,7 @@ async function geocodeAddress(address) {
   }
 }
 
-function TrackingMap({ courierLocation, deliveryAddress }) {
+function TrackingMap({ courierLocation, deliveryAddress, deliveryLat, deliveryLng }) {
   const { isLoaded } = useJsApiLoader({
     googleMapsApiKey: MAPS_KEY,
     libraries: LIBRARIES,
@@ -39,13 +39,17 @@ function TrackingMap({ courierLocation, deliveryAddress }) {
   const boundsSetRef = useRef(false)
   const [destinationCoords, setDestinationCoords] = useState(null)
 
-  // Geocodificar dirección de entrega una sola vez
+  // Usar coordenadas de BD primero (más rápido), geocodificar solo como fallback
   useEffect(() => {
+    if (deliveryLat && deliveryLng) {
+      setDestinationCoords({ lat: deliveryLat, lng: deliveryLng })
+      return
+    }
     if (!deliveryAddress || destinationCoords) return
     geocodeAddress(deliveryAddress).then(coords => {
       if (coords) setDestinationCoords(coords)
     })
-  }, [deliveryAddress])
+  }, [deliveryAddress, deliveryLat, deliveryLng])
 
   // fitBounds: mostrar ambos marcadores al tener destino
   useEffect(() => {
