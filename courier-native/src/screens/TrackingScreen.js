@@ -35,13 +35,41 @@ export default function TrackingScreen({ route, navigation }) {
     } catch {}
   }
 
+  async function tryStartBackground() {
+    try {
+      const isRunning = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK)
+        .catch(() => false)
+      if (isRunning) {
+        await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => {})
+        await new Promise(r => setTimeout(r, 800))
+      }
+      await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
+        accuracy: Location.Accuracy.High,
+        timeInterval: 8000,
+        distanceInterval: 0,
+        foregroundService: {
+          notificationTitle: '1012Delivery - Rastreo activo',
+          notificationBody: 'Compartiendo ubicacion con el cliente',
+          notificationColor: '#F97316',
+        },
+        pausesUpdatesAutomatically: false,
+        showsBackgroundLocationIndicator: true,
+      })
+      setBgActive(true)
+      console.log('[Tracking] GPS en segundo plano activo')
+    } catch (err) {
+      console.warn('[Tracking] GPS segundo plano no disponible:', err.message)
+      setBgActive(false)
+    }
+  }
+
   async function startTracking() {
     setLoading(true)
     try {
-      // 1. Permiso de notificaciones (necesario para el servicio en Android 13+)
+      // 1. Permiso de notificaciones
       await requestNotificationPermission()
 
-      // 2. Permiso de ubicación en primer plano
+      // 2. Permiso de ubicación en primer plano (obligatorio)
       const { status: fgStatus } = await Location.requestForegroundPermissionsAsync()
       if (fgStatus !== 'granted') {
         Alert.alert(
@@ -53,64 +81,18 @@ export default function TrackingScreen({ route, navigation }) {
         return
       }
 
-      // 3. Permiso de ubicación en segundo plano
-      const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync()
-
-      if (bgStatus !== 'granted') {
-        // Guiar al usuario a ajustes si no concedió "Siempre"
-        Alert.alert(
-          'Activar GPS en segundo plano',
-          'Para que el rastreo funcione con la pantalla apagada:\n\n1. Toca "Abrir ajustes"\n2. Selecciona "Permisos"\n3. Selecciona "Ubicacion"\n4. Elige "Permitir siempre"',
-          [
-            { text: 'Continuar sin fondo', style: 'cancel' },
-            { text: 'Abrir ajustes', onPress: () => Linking.openSettings() },
-          ]
-        )
-        // Continuar solo con foreground y avisar al usuario
-      }
-
-      // 4. Guardar en AsyncStorage para la tarea en segundo plano
+      // 3. Guardar en AsyncStorage para la tarea en segundo plano
       await AsyncStorage.setItem('activeDelivery', JSON.stringify({
         courier_id: courier.id,
         order_id: order.id,
       }))
 
-      // 5. Intentar iniciar el servicio de background (solo si tiene permiso)
+      // 4. Intentar segundo plano solo si ya tiene el permiso "Siempre" concedido
+      //    (no se lo pedimos obligatoriamente — funciona igual con "Solo esta app")
+      const { status: bgStatus } = await Location.getBackgroundPermissionsAsync()
+        .catch(() => ({ status: 'denied' }))
       if (bgStatus === 'granted') {
-        try {
-          // Detener tarea previa si existe
-          const isRunning = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK)
-            .catch(() => false)
-          if (isRunning) {
-            await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => {})
-            // Esperar que Android libere el servicio antes de reiniciar
-            await new Promise(r => setTimeout(r, 800))
-          }
-
-          await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-            accuracy: Location.Accuracy.High,
-            timeInterval: 8000,
-            distanceInterval: 0,
-            foregroundService: {
-              notificationTitle: '1012Delivery - Rastreo activo',
-              notificationBody: 'Compartiendo ubicacion con el cliente',
-              notificationColor: '#F97316',
-            },
-            pausesUpdatesAutomatically: false,
-            showsBackgroundLocationIndicator: true,
-          })
-
-          setBgActive(true)
-          console.log('[Tracking] GPS en segundo plano iniciado correctamente')
-        } catch (bgErr) {
-          console.error('[Tracking] Error iniciando GPS en segundo plano:', bgErr.message)
-          Alert.alert(
-            'GPS en segundo plano',
-            'No se pudo activar el GPS en segundo plano. El rastreo funcionara solo con la pantalla encendida.\n\nSi esto persiste, reinstala la app.',
-            [{ text: 'Entendido' }]
-          )
-          setBgActive(false)
-        }
+        await tryStartBackground()
       }
 
       // 6. Siempre iniciar watchPosition en primer plano (actualizaciones cuando pantalla ON)
@@ -241,9 +223,9 @@ export default function TrackingScreen({ route, navigation }) {
         {/* Aviso si no tiene background */}
         {tracking && !bgActive && (
           <TouchableOpacity style={styles.warningBox} onPress={() => Linking.openSettings()}>
-            <Text style={styles.warningTitle}>GPS limitado</Text>
+            <Text style={styles.warningTitle}>Modo normal activo</Text>
             <Text style={styles.warningText}>
-              El rastreo se pausa cuando apagas la pantalla. Toca aqui para ir a Ajustes y seleccionar Ubicacion → "Permitir siempre".
+              El GPS funciona mientras la app esta abierta. Si quieres que funcione con la pantalla apagada, ve a Ajustes → Ubicacion → "Permitir siempre". (Opcional)
             </Text>
           </TouchableOpacity>
         )}
@@ -301,15 +283,6 @@ export default function TrackingScreen({ route, navigation }) {
             ? <ActivityIndicator color="#fff" />
             : <Text style={styles.deliveredBtnText}>Marcar como entregado</Text>
           }
-        </TouchableOpacity>
-
-        {/* Botón Detener */}
-        <TouchableOpacity
-          style={styles.stopBtn}
-          onPress={stopAndGoBack}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.stopBtnText}>Detener rastreo</Text>
         </TouchableOpacity>
 
       </ScrollView>
@@ -412,12 +385,5 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   deliveredBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  stopBtn: {
-    backgroundColor: '#EF4444',
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  stopBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   btnDisabled: { opacity: 0.6 },
 })
