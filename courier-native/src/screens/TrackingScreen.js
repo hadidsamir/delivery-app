@@ -48,8 +48,12 @@ export default function TrackingScreen({ route, navigation }) {
         .catch(() => false)
       if (alreadyRunning) {
         await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => {})
-        await new Promise(r => setTimeout(r, 500))
+        await new Promise(r => setTimeout(r, 800))
       }
+
+      // Pequeño delay para que el hilo principal de Android termine de renderizar
+      // antes de iniciar el Foreground Service (previene ANR en algunos dispositivos)
+      await new Promise(r => setTimeout(r, 400))
 
       // Iniciar Foreground Service GPS
       // - Muestra notificación persistente → Android no lo mata con pantalla apagada
