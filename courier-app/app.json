@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "6b90fde7-b08c-4fb3-9029-36199c4be242"
+      }
+    },
+    "android": {
+      "package": "com.hadidsamir.courierapp"
+    }
+  }
+}

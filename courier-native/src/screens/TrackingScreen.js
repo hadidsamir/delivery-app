@@ -150,35 +150,6 @@ export default function TrackingScreen({ route, navigation }) {
 
       <ScrollView contentContainerStyle={styles.content}>
 
-        {/* Tarjeta GPS */}
-        <TouchableOpacity
-          activeOpacity={gpsStatus === 'error' ? 0.7 : 1}
-          onPress={gpsStatus === 'error' ? startGPS : undefined}
-          style={[styles.gpsCard, { backgroundColor: c.bg, borderColor: c.border }]}
-        >
-          <View style={styles.dotWrap}>
-            {gpsStatus === 'iniciando'
-              ? <ActivityIndicator color={c.color} size="small" />
-              : <View style={[styles.dot, { backgroundColor: c.color }]} />
-            }
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.gpsLabel, { color: c.color }]}>{c.label}</Text>
-            <Text style={[styles.gpsSub, { color: c.color }]}>{c.sub}</Text>
-          </View>
-        </TouchableOpacity>
-
-        {/* Última actualización GPS */}
-        {lastUpdate ? (
-          <View style={styles.updateBox}>
-            <Text style={styles.updateText}>GPS: {lastUpdate}</Text>
-          </View>
-        ) : gpsStatus === 'activo' ? (
-          <View style={styles.updateBox}>
-            <Text style={styles.updateText}>Esperando primera ubicacion...</Text>
-          </View>
-        ) : null}
-
         {/* Detalle del pedido */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>DETALLE DEL PEDIDO</Text>
@@ -199,6 +170,17 @@ export default function TrackingScreen({ route, navigation }) {
             </View>
           )}
         </View>
+
+        {/* Nota del administrador */}
+        {!!order.notes && (
+          <View style={[styles.card, { backgroundColor: '#FFFBEB', borderColor: '#FDE68A' }]}>
+            <Text style={[styles.cardTitle, { color: '#92400E' }]}>NOTA DEL ADMINISTRADOR</Text>
+            <View style={styles.row}>
+              <Text style={styles.icon}>📝</Text>
+              <Text style={[styles.rowText, { color: '#78350F' }]}>{order.notes}</Text>
+            </View>
+          </View>
+        )}
 
         {/* Artículos */}
         {order.items?.length > 0 && (

@@ -16,6 +16,7 @@ export default function NewOrder() {
     client_phone: '',
     delivery_address: '',
     courier_id: '',
+    notes: '',
   })
   const [deliveryCoords, setDeliveryCoords] = useState(null)
   const [items, setItems] = useState([{ name: '', qty: 1 }])
@@ -61,10 +62,32 @@ export default function NewOrder() {
       delivery_order: 1,
       delivery_lat: deliveryCoords?.lat ?? null,
       delivery_lng: deliveryCoords?.lng ?? null,
+      notes: form.notes.trim(),
     })
 
+    if (error) { setLoading(false); return alert('Error al crear pedido: ' + error.message) }
+
+    // Enviar push notification al mensajero
+    try {
+      const { data: courierData } = await supabase
+        .from('couriers').select('push_token, name').eq('id', form.courier_id).single()
+      if (courierData?.push_token) {
+        await fetch('https://exp.host/--/api/v2/push/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: courierData.push_token,
+            title: '1012Delivery — Nuevo pedido',
+            body: `Para ${form.client_name} en ${form.delivery_address}`,
+            sound: 'default',
+            priority: 'high',
+            channelId: 'pedidos',
+          }),
+        })
+      }
+    } catch (e) { console.warn('Push notification error:', e) }
+
     setLoading(false)
-    if (error) return alert('Error al crear pedido: ' + error.message)
     navigate('/dashboard')
   }
 
@@ -219,6 +242,19 @@ export default function NewOrder() {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Notas para el mensajero */}
+          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-6">
+            <h2 className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-4">Nota para el mensajero</h2>
+            <textarea
+              value={form.notes}
+              onChange={e => setField('notes', e.target.value)}
+              placeholder="Ej: Tocar timbre 3 veces, entregar al portero, edificio torre B..."
+              rows={3}
+              className={inputClass + " resize-none"}
+            />
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5">Opcional — el mensajero la verá en su app</p>
           </div>
 
           {/* Botones */}

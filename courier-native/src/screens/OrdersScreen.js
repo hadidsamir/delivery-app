@@ -1,11 +1,22 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList,
-  ActivityIndicator, RefreshControl, Alert, StatusBar, SafeAreaView, Image, Platform, PermissionsAndroid,
+  ActivityIndicator, RefreshControl, Alert, StatusBar, Image, Platform, PermissionsAndroid,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import * as Location from 'expo-location'
+import * as Notifications from 'expo-notifications'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '../lib/supabase'
+
+// Configurar cómo se muestran las notificaciones cuando la app está abierta
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+})
 
 export default function OrdersScreen({ navigation }) {
   const [courier, setCourier]     = useState(null)
@@ -17,12 +28,34 @@ export default function OrdersScreen({ navigation }) {
     loadCourier()
   }, [])
 
+  // Registrar push token y guardarlo en Supabase
+  async function registerPushToken(courierId) {
+    try {
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('pedidos', {
+          name: 'Pedidos nuevos',
+          importance: Notifications.AndroidImportance.MAX,
+          sound: true,
+          vibrationPattern: [0, 250, 250, 250],
+        })
+      }
+      const { status } = await Notifications.requestPermissionsAsync()
+      if (status !== 'granted') return
+      const token = (await Notifications.getExpoPushTokenAsync()).data
+      await supabase.from('couriers').update({ push_token: token }).eq('id', courierId)
+      console.log('[Push] Token registrado:', token)
+    } catch (err) {
+      console.warn('[Push] Error registrando token:', err.message)
+    }
+  }
+
   async function loadCourier() {
     const stored = await AsyncStorage.getItem('courier')
     if (!stored) { navigation.replace('Login'); return }
     const data = JSON.parse(stored)
     setCourier(data)
     fetchOrders(data.id)
+    registerPushToken(data.id)
 
     const channel = supabase
       .channel('native-orders-' + data.id)
