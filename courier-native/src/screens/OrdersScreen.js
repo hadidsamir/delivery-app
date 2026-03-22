@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList,
-  ActivityIndicator, RefreshControl, Alert, StatusBar, Image, Platform, PermissionsAndroid,
+  ActivityIndicator, RefreshControl, Alert, StatusBar, Image, Platform,
+  PermissionsAndroid, Linking,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import * as Location from 'expo-location'
@@ -49,6 +50,29 @@ export default function OrdersScreen({ navigation }) {
     }
   }
 
+  // Mostrar aviso de batería una sola vez por instalación
+  async function checkBatteryOptimization() {
+    try {
+      const shown = await AsyncStorage.getItem('batteryWarningShown')
+      if (shown) return
+      await AsyncStorage.setItem('batteryWarningShown', 'true')
+      Alert.alert(
+        'Importante para el rastreo GPS',
+        'Para que el GPS funcione con la pantalla apagada necesitas:\n\n' +
+        '1. Ve a Ajustes del teléfono\n' +
+        '2. Busca "Aplicaciones"\n' +
+        '3. Encuentra "1012Delivery"\n' +
+        '4. Toca "Batería"\n' +
+        '5. Selecciona "Sin restricciones"\n\n' +
+        'Esto garantiza que el cliente siempre vea tu posición.',
+        [
+          { text: 'Abrir Ajustes', onPress: () => Linking.openSettings() },
+          { text: 'Más tarde', style: 'cancel' },
+        ]
+      )
+    } catch {}
+  }
+
   async function loadCourier() {
     const stored = await AsyncStorage.getItem('courier')
     if (!stored) { navigation.replace('Login'); return }
@@ -56,6 +80,7 @@ export default function OrdersScreen({ navigation }) {
     setCourier(data)
     fetchOrders(data.id)
     registerPushToken(data.id)
+    checkBatteryOptimization()
 
     const channel = supabase
       .channel('native-orders-' + data.id)
