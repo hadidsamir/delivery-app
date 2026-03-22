@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import Logo from '../components/Logo'
@@ -33,6 +33,8 @@ export default function Dashboard() {
   const [couriers, setCouriers] = useState([])
   const [loading, setLoading] = useState(true)
 
+  const couriersRef = useRef([])
+
   // Modals
   const [trackingOrder, setTrackingOrder] = useState(null)
   const [assignOrder, setAssignOrder] = useState(null)
@@ -51,6 +53,7 @@ export default function Dashboard() {
     ])
     setOrders(ordersData || [])
     setCouriers(couriersData || [])
+    couriersRef.current = couriersData || []
     setLoading(false)
   }, [])
 
@@ -64,11 +67,14 @@ export default function Dashboard() {
         setOrders(prev =>
           prev.map(order => {
             if (order.id !== payload.new.id) return order
-            return {
-              ...order,
-              ...payload.new,
-              couriers: payload.new.courier_id ? order.couriers : null,
+            // Resolver nombre del mensajero desde el ref (no depende del closure)
+            let courierData = order.couriers
+            if (payload.new.courier_id !== order.courier_id) {
+              const found = couriersRef.current.find(c => c.id === payload.new.courier_id)
+              courierData = found ? { name: found.name } : null
             }
+            if (!payload.new.courier_id) courierData = null
+            return { ...order, ...payload.new, couriers: courierData }
           })
         )
       })
@@ -85,11 +91,11 @@ export default function Dashboard() {
     navigate('/login')
   }
 
-  // Stats
+  // Stats — calculados sobre todos los pedidos cargados
   const totalPedidos = orders.length
-  const esperando = orders.filter(o => o.status === 'pendiente').length
-  const enCamino = orders.filter(o => o.status === 'en_camino').length
-  const entregados = orders.filter(o => o.status === 'entregado').length
+  const esperando   = orders.filter(o => o.status === 'pendiente').length
+  const enCamino    = orders.filter(o => o.status === 'en_camino').length
+  const entregados  = orders.filter(o => o.status === 'entregado').length
 
   async function copyLink(token) {
     const url = `${CLIENT_URL}/track/${token}`
@@ -101,11 +107,19 @@ export default function Dashboard() {
   async function handleAssign() {
     if (!assignCourierId) return
     setAssigning(true)
-    await supabase.from('orders').update({ courier_id: assignCourierId }).eq('id', assignOrder.id)
-    setAssigning(false)
+    const selectedCourier = couriers.find(c => c.id === assignCourierId)
+
+    // Actualización optimista: la UI cambia antes de esperar a Supabase
+    setOrders(prev => prev.map(o =>
+      o.id === assignOrder.id
+        ? { ...o, courier_id: assignCourierId, couriers: { name: selectedCourier?.name || '' } }
+        : o
+    ))
     setAssignOrder(null)
     setAssignCourierId('')
-    fetchData()
+    setAssigning(false)
+
+    await supabase.from('orders').update({ courier_id: assignCourierId }).eq('id', assignOrder.id)
   }
 
   return (
@@ -163,7 +177,7 @@ export default function Dashboard() {
               </div>
             </div>
             <p className="text-3xl font-black text-gray-900 dark:text-white">{totalPedidos}</p>
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">pedidos hoy</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">pedidos totales</p>
           </div>
 
           {/* Esperando */}
@@ -315,14 +329,16 @@ export default function Dashboard() {
                             onClick={() => { setTrackingOrder(order); setCopied(false) }}
                             className="text-xs font-medium bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 rounded-lg transition-colors"
                           >
-                            Tracking
+                            Seguimiento
                           </button>
-                          <button
-                            onClick={() => { setAssignOrder(order); setAssignCourierId(order.courier_id || '') }}
-                            className="text-xs font-medium bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40 text-orange-600 dark:text-orange-400 px-3 py-1.5 rounded-lg transition-colors"
-                          >
-                            Asignar
-                          </button>
+                          {order.status !== 'entregado' && order.status !== 'cancelado' && (
+                            <button
+                              onClick={() => { setAssignOrder(order); setAssignCourierId(order.courier_id || '') }}
+                              className="text-xs font-medium bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40 text-orange-600 dark:text-orange-400 px-3 py-1.5 rounded-lg transition-colors"
+                            >
+                              Asignar
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
