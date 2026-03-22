@@ -331,7 +331,7 @@ export default function Dashboard() {
                           >
                             Seguimiento
                           </button>
-                          {order.status !== 'entregado' && order.status !== 'cancelado' && (
+                          {order.status !== 'entregado' && (
                             <button
                               onClick={() => { setAssignOrder(order); setAssignCourierId(order.courier_id || '') }}
                               className="text-xs font-medium bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40 text-orange-600 dark:text-orange-400 px-3 py-1.5 rounded-lg transition-colors"
