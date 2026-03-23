@@ -54,6 +54,7 @@ export default function Login() {
               objectFit: 'contain',
               margin: '0 auto',
               display: 'block',
+              mixBlendMode: 'screen',
             }}
           />
           <p style={{
