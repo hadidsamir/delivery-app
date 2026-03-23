@@ -1,6 +1,8 @@
 import * as TaskManager from 'expo-task-manager'
 import * as Location from 'expo-location'
+import * as Notifications from 'expo-notifications'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { supabase } from './supabase'
 
 export const BACKGROUND_LOCATION_TASK = 'BACKGROUND_LOCATION'
 export const KEEPALIVE_TASK = 'ORDERS_KEEPALIVE'
@@ -76,12 +78,55 @@ async function sendLocation(courier_id, order_id, latitude, longitude) {
   }
 }
 
-// Tarea keepalive: solo mantiene el proceso vivo para que Supabase Realtime funcione
-// cuando el mensajero está en la pantalla de pedidos con la app minimizada
-TaskManager.defineTask(KEEPALIVE_TASK, async ({ data, error }) => {
+// Tarea keepalive: cada 30 segundos consulta Supabase y notifica pedidos nuevos
+// Esto garantiza notificaciones incluso si el WebSocket de Realtime se cierra
+TaskManager.defineTask(KEEPALIVE_TASK, async ({ error }) => {
   if (error) return
-  // Solo registrar que sigue activo — no enviar ubicación
-  console.log('[Keepalive] Proceso activo, Realtime conectado')
+  try {
+    const stored = await AsyncStorage.getItem('courier')
+    if (!stored) return
+
+    const { id: courierId } = JSON.parse(stored)
+
+    // Consultar pedidos pendientes asignados a este mensajero
+    const { data: orders, error: dbError } = await supabase
+      .from('orders')
+      .select('id, client_name, delivery_address, status')
+      .eq('courier_id', courierId)
+      .eq('status', 'pendiente')
+
+    if (dbError || !orders?.length) return
+
+    // IDs ya notificados (guardados en AsyncStorage para persistir entre ciclos)
+    const notifiedStr = await AsyncStorage.getItem('keepaliveNotified') || '[]'
+    const notified = new Set(JSON.parse(notifiedStr))
+
+    const newOrders = orders.filter(o => !notified.has(o.id))
+    if (!newOrders.length) return
+
+    // Notificar cada pedido nuevo
+    for (const order of newOrders) {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '🛵 Nuevo pedido asignado',
+          body: `${order.client_name}\n📍 ${order.delivery_address}`,
+          sound: true,
+          channelId: 'pedidos',
+          categoryIdentifier: 'nuevo_pedido',
+          data: { orderId: order.id },
+        },
+        trigger: null,
+      }).catch(() => {})
+      notified.add(order.id)
+    }
+
+    // Limpiar IDs viejos (mantener solo los últimos 50)
+    const notifiedArr = [...notified].slice(-50)
+    await AsyncStorage.setItem('keepaliveNotified', JSON.stringify(notifiedArr))
+    console.log('[Keepalive] Revisó pedidos, nuevos:', newOrders.length)
+  } catch (err) {
+    console.warn('[Keepalive] Error:', err.message)
+  }
 })
 
 // IMPORTANTE: defineTask debe ejecutarse al inicio del proceso (antes de montar componentes)

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList,
   ActivityIndicator, RefreshControl, Alert, StatusBar, Image, Platform,
-  PermissionsAndroid, Linking,
+  PermissionsAndroid, Linking, AppState,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import * as Location from 'expo-location'
@@ -34,48 +34,64 @@ export default function OrdersScreen({ navigation }) {
   }
 
   useEffect(() => {
-    let channel = null
+    let channel   = null
+    let courierData = null
 
     async function init() {
       const stored = await AsyncStorage.getItem('courier')
       if (!stored) { navigation.replace('Login'); return }
-      const data = JSON.parse(stored)
-      setCourier(data)
-      fetchOrders(data.id)
+      courierData = JSON.parse(stored)
+      setCourier(courierData)
+      fetchOrders(courierData.id)
       setupNotifications()
       checkBatteryOptimization()
-      // Asegurar que el keepalive siga activo (por si se reinició el proceso)
       startAppKeepalive()
+      subscribeRealtime(courierData.id)
+    }
+
+    function subscribeRealtime(courierId) {
+      // Eliminar canal previo si existe
+      if (channel) supabase.removeChannel(channel)
 
       channel = supabase
-        .channel('native-orders-' + data.id)
+        .channel('native-orders-' + courierId + '-' + Date.now())
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
           async (payload) => {
-            if (payload.new.courier_id === data.id) {
-              fetchOrders(data.id)
+            if (payload.new.courier_id === courierId) {
+              fetchOrders(courierId)
               notifyNewOrder(payload.new)
             }
           })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' },
           async (payload) => {
             const wasReassigned =
-              payload.new.courier_id === data.id &&
-              payload.old?.courier_id !== data.id &&
+              payload.new.courier_id === courierId &&
+              payload.old?.courier_id !== courierId &&
               payload.new.status === 'pendiente'
 
-            if (payload.new.courier_id === data.id || payload.old?.courier_id === data.id)
-              fetchOrders(data.id)
+            if (payload.new.courier_id === courierId || payload.old?.courier_id === courierId)
+              fetchOrders(courierId)
 
             if (wasReassigned) notifyNewOrder(payload.new)
           })
-        .subscribe()
+        .subscribe((status) => {
+          console.log('[Realtime] Estado del canal:', status)
+        })
     }
+
+    // Refrescar pedidos y reconectar Realtime al volver al primer plano
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && courierData?.id) {
+        fetchOrders(courierData.id)
+        subscribeRealtime(courierData.id) // reconectar canal por si se cayó
+      }
+    })
 
     init()
 
     return () => {
+      appStateSub.remove()
       if (channel) supabase.removeChannel(channel)
-      // NO detener keepalive aquí — debe persistir al navegar a TrackingScreen
     }
   }, [])
 
