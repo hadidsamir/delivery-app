@@ -9,6 +9,7 @@ import * as Location from 'expo-location'
 import * as Notifications from 'expo-notifications'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '../lib/supabase'
+import { startAppKeepalive, stopAppKeepalive } from '../lib/backgroundTask'
 
 // Configurar cómo se muestran las notificaciones cuando la app está abierta
 Notifications.setNotificationHandler({
@@ -24,29 +25,117 @@ export default function OrdersScreen({ navigation }) {
   const [orders, setOrders]       = useState([])
   const [loading, setLoading]     = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  // Set de IDs de pedidos ya notificados — evita notificaciones duplicadas
+  // Se limpia automáticamente al superar 100 entradas para evitar memory leak
+  const notifiedOrders = React.useRef(new Set())
+  function addNotified(id) {
+    if (notifiedOrders.current.size >= 100) notifiedOrders.current.clear()
+    notifiedOrders.current.add(id)
+  }
 
   useEffect(() => {
-    loadCourier()
+    let channel = null
+
+    async function init() {
+      const stored = await AsyncStorage.getItem('courier')
+      if (!stored) { navigation.replace('Login'); return }
+      const data = JSON.parse(stored)
+      setCourier(data)
+      fetchOrders(data.id)
+      setupNotifications()
+      checkBatteryOptimization()
+      // Asegurar que el keepalive siga activo (por si se reinició el proceso)
+      startAppKeepalive()
+
+      channel = supabase
+        .channel('native-orders-' + data.id)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
+          async (payload) => {
+            if (payload.new.courier_id === data.id) {
+              fetchOrders(data.id)
+              notifyNewOrder(payload.new)
+            }
+          })
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' },
+          async (payload) => {
+            const wasReassigned =
+              payload.new.courier_id === data.id &&
+              payload.old?.courier_id !== data.id &&
+              payload.new.status === 'pendiente'
+
+            if (payload.new.courier_id === data.id || payload.old?.courier_id === data.id)
+              fetchOrders(data.id)
+
+            if (wasReassigned) notifyNewOrder(payload.new)
+          })
+        .subscribe()
+    }
+
+    init()
+
+    return () => {
+      if (channel) supabase.removeChannel(channel)
+      // NO detener keepalive aquí — debe persistir al navegar a TrackingScreen
+    }
   }, [])
 
-  // Registrar push token y guardarlo en Supabase
-  async function registerPushToken(courierId) {
+  // Configurar canal de notificaciones y botones de acción
+  async function setupNotifications() {
     try {
+      const { status } = await Notifications.requestPermissionsAsync()
+      if (status !== 'granted') return
+
       if (Platform.OS === 'android') {
         await Notifications.setNotificationChannelAsync('pedidos', {
           name: 'Pedidos nuevos',
           importance: Notifications.AndroidImportance.MAX,
           sound: true,
-          vibrationPattern: [0, 250, 250, 250],
+          vibrationPattern: [0, 300, 200, 300],
+          enableLights: true,
+          lightColor: '#F97316',
         })
       }
-      const { status } = await Notifications.requestPermissionsAsync()
-      if (status !== 'granted') return
-      const token = (await Notifications.getExpoPushTokenAsync()).data
-      await supabase.from('couriers').update({ push_token: token }).eq('id', courierId)
-      console.log('[Push] Token registrado:', token)
+
+      // Registrar categoría con botones Aceptar / Rechazar
+      await Notifications.setNotificationCategoryAsync('nuevo_pedido', [
+        {
+          identifier: 'aceptar',
+          buttonTitle: '✅ Aceptar',
+          options: { opensAppToForeground: true },   // abre la app al aceptar
+        },
+        {
+          identifier: 'rechazar',
+          buttonTitle: '❌ Rechazar',
+          options: { opensAppToForeground: false, isDestructive: true },
+        },
+      ])
+
+      console.log('[Notif] Canal y categoría configurados')
     } catch (err) {
-      console.warn('[Push] Error registrando token:', err.message)
+      console.warn('[Notif] Error configurando notificaciones:', err.message)
+    }
+  }
+
+  // Disparar notificación con botones Aceptar / Rechazar
+  async function notifyNewOrder(order) {
+    // Evitar notificación duplicada para el mismo pedido
+    if (notifiedOrders.current.has(order.id)) return
+    addNotified(order.id)
+    try {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '🛵 Nuevo pedido asignado',
+          body: `${order.client_name}\n📍 ${order.delivery_address}`,
+          sound: true,
+          priority: Notifications.AndroidNotificationPriority.MAX,
+          channelId: 'pedidos',
+          categoryIdentifier: 'nuevo_pedido',
+          data: { orderId: order.id },
+        },
+        trigger: null,
+      })
+    } catch (err) {
+      console.warn('[Notif] Error enviando notificacion:', err.message)
     }
   }
 
@@ -73,29 +162,6 @@ export default function OrdersScreen({ navigation }) {
     } catch {}
   }
 
-  async function loadCourier() {
-    const stored = await AsyncStorage.getItem('courier')
-    if (!stored) { navigation.replace('Login'); return }
-    const data = JSON.parse(stored)
-    setCourier(data)
-    fetchOrders(data.id)
-    registerPushToken(data.id)
-    checkBatteryOptimization()
-
-    const channel = supabase
-      .channel('native-orders-' + data.id)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
-        (payload) => { if (payload.new.courier_id === data.id) fetchOrders(data.id) })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' },
-        (payload) => {
-          if (payload.new.courier_id === data.id || payload.old?.courier_id === data.id)
-            fetchOrders(data.id)
-        })
-      .subscribe()
-
-    return () => supabase.removeChannel(channel)
-  }
-
   async function fetchOrders(courierId) {
     const { data } = await supabase
       .from('orders')
@@ -109,18 +175,30 @@ export default function OrdersScreen({ navigation }) {
   }
 
   async function acceptOrder(orderId) {
-    await supabase.from('orders').update({ status: 'en_camino' }).eq('id', orderId)
-    fetchOrders(courier.id)
+    if (!courier?.id) return
+    try {
+      await supabase.from('orders').update({ status: 'en_camino' }).eq('id', orderId)
+      fetchOrders(courier.id)
+    } catch (err) {
+      Alert.alert('Error', 'No se pudo aceptar el pedido: ' + err.message)
+    }
   }
 
   async function rejectOrder(orderId) {
+    if (!courier?.id) return
     Alert.alert('Rechazar pedido', 'El pedido volverá al administrador.', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Rechazar', style: 'destructive',
         onPress: async () => {
-          await supabase.from('orders').update({ status: 'pendiente', courier_id: null }).eq('id', orderId)
-          fetchOrders(courier.id)
+          try {
+            await supabase.from('orders').update({ status: 'pendiente', courier_id: null }).eq('id', orderId)
+            // Limpiar del Set para permitir nueva notificación si se reasigna
+            notifiedOrders.current.delete(orderId)
+            fetchOrders(courier.id)
+          } catch (err) {
+            Alert.alert('Error', 'No se pudo rechazar el pedido: ' + err.message)
+          }
         },
       },
     ])
@@ -150,7 +228,7 @@ export default function OrdersScreen({ navigation }) {
         return
       }
 
-      // 3. Permiso concedido → navegar a Tracking (sin más diálogos)
+      // 3. Navegar a Tracking — el keepalive sigue corriendo en paralelo
       navigation.navigate('Tracking', { order, courier })
 
     } catch (err) {
@@ -164,6 +242,7 @@ export default function OrdersScreen({ navigation }) {
       {
         text: 'Salir', style: 'destructive',
         onPress: async () => {
+          await stopAppKeepalive()
           await AsyncStorage.removeItem('courier')
           navigation.replace('Login')
         },

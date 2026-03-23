@@ -8,17 +8,20 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '../lib/supabase'
 import { BACKGROUND_LOCATION_TASK } from '../lib/backgroundTask'
 
-const BACKEND_URL = 'https://delivery-app-production-9c98.up.railway.app'
-
 export default function TrackingScreen({ route, navigation }) {
-  const { order, courier } = route.params
+  // Validar que llegaron los parámetros requeridos
+  const order   = route.params?.order
+  const courier = route.params?.courier
 
-  const [gpsStatus, setGpsStatus] = useState('iniciando') // 'iniciando' | 'activo' | 'error'
-  const [lastUpdate, setLastUpdate] = useState(null)
+  if (!order || !courier) {
+    // Params inválidos → volver a la pantalla anterior de forma segura
+    navigation.replace('Orders')
+    return null
+  }
+
   const [delivering, setDelivering] = useState(false)
 
   const isMounted   = useRef(true)
-  const pollRef     = useRef(null)
   const stoppingRef = useRef(false)
 
   // ─── Al montar: iniciar GPS directamente (permisos ya fueron concedidos en OrdersScreen) ──
@@ -26,11 +29,9 @@ export default function TrackingScreen({ route, navigation }) {
     isMounted.current = true
     stoppingRef.current = false
     startGPS()
-    pollRef.current = setInterval(readLastUpdate, 4000)
 
     return () => {
       isMounted.current = false
-      if (pollRef.current) clearInterval(pollRef.current)
       if (!stoppingRef.current) stopGPS()
     }
   }, [])
@@ -72,12 +73,10 @@ export default function TrackingScreen({ route, navigation }) {
         showsBackgroundLocationIndicator: true,
       })
 
-      if (isMounted.current) setGpsStatus('activo')
       console.log('[TrackingScreen] GPS foreground service iniciado')
 
     } catch (err) {
       console.error('[startGPS] Error:', err.message)
-      if (isMounted.current) setGpsStatus('error')
     }
   }
 
@@ -85,7 +84,6 @@ export default function TrackingScreen({ route, navigation }) {
     if (stoppingRef.current) return
     stoppingRef.current = true
     try {
-      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
       const running = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK)
         .catch(() => false)
       if (running) {
@@ -97,40 +95,17 @@ export default function TrackingScreen({ route, navigation }) {
     }
   }
 
-  async function readLastUpdate() {
-    try {
-      const val = await AsyncStorage.getItem('lastGpsUpdate')
-      if (val && isMounted.current) setLastUpdate(val)
-    } catch {}
-  }
-
   async function markDelivered() {
-    Alert.alert('Confirmar entrega', 'Esto finalizará el rastreo GPS.', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Confirmar',
-        onPress: async () => {
-          setDelivering(true)
-          try {
-            await stopGPS()
-            await supabase.from('orders').update({ status: 'entregado' }).eq('id', order.id)
-            if (isMounted.current) navigation.replace('Orders')
-          } catch (err) {
-            Alert.alert('Error', err.message)
-            if (isMounted.current) setDelivering(false)
-          }
-        },
-      },
-    ])
+    setDelivering(true)
+    try {
+      await stopGPS()
+      await supabase.from('orders').update({ status: 'entregado' }).eq('id', order.id)
+      if (isMounted.current) navigation.replace('Orders')
+    } catch (err) {
+      Alert.alert('Error', err.message)
+      if (isMounted.current) setDelivering(false)
+    }
   }
-
-  // ─── UI ───────────────────────────────────────────────────────────────────────
-  const cfg = {
-    iniciando: { color: '#D97706', bg: '#FFFBEB', border: '#FDE68A', label: 'Iniciando GPS...',   sub: 'Activando rastreo' },
-    activo:    { color: '#16A34A', bg: '#F0FDF4', border: '#86EFAC', label: 'GPS activo',          sub: 'Funciona con pantalla apagada y otras apps' },
-    error:     { color: '#DC2626', bg: '#FEF2F2', border: '#FCA5A5', label: 'Error al iniciar GPS', sub: 'Toca aqui para reintentar' },
-  }
-  const c = cfg[gpsStatus]
 
   return (
     <View style={styles.container}>
@@ -235,22 +210,6 @@ const styles = StyleSheet.create({
   title:    { fontSize: 16, fontWeight: '700', color: '#111827' },
 
   content: { padding: 16, gap: 12, paddingBottom: 48 },
-
-  gpsCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    padding: 16,
-  },
-  dotWrap:  { width: 18, height: 18, alignItems: 'center', justifyContent: 'center' },
-  dot:      { width: 12, height: 12, borderRadius: 6 },
-  gpsLabel: { fontSize: 15, fontWeight: '700' },
-  gpsSub:   { fontSize: 12, marginTop: 2, opacity: 0.85 },
-
-  updateBox:  { backgroundColor: '#F0FDF4', borderRadius: 10, padding: 10, borderLeftWidth: 3, borderLeftColor: '#22C55E' },
-  updateText: { fontSize: 12, color: '#166534', fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
 
   card: {
     backgroundColor: '#fff',

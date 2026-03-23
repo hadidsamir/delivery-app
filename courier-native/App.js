@@ -8,12 +8,45 @@ import { NavigationContainer } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { StatusBar } from 'expo-status-bar'
 import * as Location from 'expo-location'
+import * as Notifications from 'expo-notifications'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { supabase } from './src/lib/supabase'
+import { BACKGROUND_LOCATION_TASK, startAppKeepalive } from './src/lib/backgroundTask'
+
+// ─── Listener de acciones de notificación a nivel de módulo ──────────────────
+// Se registra ANTES de que React monte cualquier pantalla.
+// Funciona incluso si la app estaba completamente cerrada cuando el usuario
+// toca "Aceptar" o "Rechazar" en la notificación de nuevo pedido.
+Notifications.addNotificationResponseReceivedListener(async (response) => {
+  const action  = response.actionIdentifier
+  const notifId = response.notification.request.identifier
+  const orderId = response.notification.request.content.data?.orderId
+  if (!orderId) return
+
+  try {
+    if (action === 'aceptar') {
+      // La app se abre sola (opensAppToForeground: true)
+      // Solo marcamos en_camino — el mensajero verá el pedido en la app
+      await supabase.from('orders')
+        .update({ status: 'en_camino' })
+        .eq('id', orderId)
+      console.log('[App] Pedido aceptado:', orderId)
+    } else if (action === 'rechazar') {
+      await supabase.from('orders')
+        .update({ status: 'pendiente', courier_id: null })
+        .eq('id', orderId)
+      // Descartar la notificación para que desaparezca del panel
+      await Notifications.dismissNotificationAsync(notifId).catch(() => {})
+      console.log('[App] Pedido rechazado y notificación descartada:', orderId)
+    }
+  } catch (err) {
+    console.error('[App] Error procesando acción de notificación:', err.message)
+  }
+})
 
 import LoginScreen from './src/screens/LoginScreen'
 import OrdersScreen from './src/screens/OrdersScreen'
 import TrackingScreen from './src/screens/TrackingScreen'
-import { BACKGROUND_LOCATION_TASK } from './src/lib/backgroundTask'
 
 const Stack = createNativeStackNavigator()
 
@@ -43,6 +76,7 @@ export default function App() {
       const courier = await AsyncStorage.getItem('courier')
       if (courier) {
         setInitialRoute('Orders')
+        startAppKeepalive() // inicia el servicio de fondo para recibir notificaciones
       } else {
         setInitialRoute('Login')
       }

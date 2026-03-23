@@ -87,7 +87,9 @@ export default function Dashboard() {
   }, [fetchData])
 
   async function logout() {
-    await supabase.auth.signOut()
+    try {
+      await supabase.auth.signOut()
+    } catch {}
     navigate('/login')
   }
 
@@ -98,10 +100,25 @@ export default function Dashboard() {
   const entregados  = orders.filter(o => o.status === 'entregado').length
 
   async function copyLink(token) {
-    const url = `${CLIENT_URL}/track/${token}`
-    await navigator.clipboard.writeText(url)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    if (!token) return
+    const url = `${CLIENT_URL}/track/${encodeURIComponent(token)}`
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(url)
+      } else {
+        // Fallback para HTTP o navegadores sin Clipboard API
+        const el = document.createElement('textarea')
+        el.value = url
+        document.body.appendChild(el)
+        el.select()
+        document.execCommand('copy')
+        document.body.removeChild(el)
+      }
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      alert('No se pudo copiar el link. Cópialo manualmente: ' + url)
+    }
   }
 
   async function handleAssign() {
