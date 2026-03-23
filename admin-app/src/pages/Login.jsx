@@ -222,12 +222,12 @@ export default function Login() {
               style={{
                 width: '100%',
                 background: loading
-                  ? '#c2410c'
-                  : 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
+                  ? '#00b8b2'
+                  : 'linear-gradient(135deg, #00E8E1 0%, #00c9c3 100%)',
                 border: 'none',
                 borderRadius: '14px',
                 padding: '18px',
-                color: '#ffffff',
+                color: '#000000',
                 fontSize: '16px',
                 fontWeight: '700',
                 letterSpacing: '0.03em',
@@ -236,14 +236,14 @@ export default function Login() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '10px',
-                boxShadow: loading ? 'none' : '0 8px 30px rgba(249,115,22,0.4)',
+                boxShadow: loading ? 'none' : '0 8px 30px rgba(0,232,225,0.35)',
                 transition: 'all 0.2s',
                 opacity: loading ? 0.8 : 1,
               }}
               onMouseEnter={e => {
                 if (!loading) {
                   e.target.style.transform = 'translateY(-1px)'
-                  e.target.style.boxShadow = '0 12px 40px rgba(249,115,22,0.5)'
+                  e.target.style.boxShadow = '0 12px 40px rgba(0,232,225,0.5)'
                 }
               }}
               onMouseLeave={e => {
