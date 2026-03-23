@@ -42,8 +42,8 @@ export default function Dashboard() {
   const [copied, setCopied] = useState(false)
   const [assigning, setAssigning] = useState(false)
 
-  const fetchData = useCallback(async () => {
-    setLoading(true)
+  const fetchData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     const [{ data: ordersData }, { data: couriersData }] = await Promise.all([
       supabase
         .from('orders')
@@ -54,34 +54,29 @@ export default function Dashboard() {
     setOrders(ordersData || [])
     setCouriers(couriersData || [])
     couriersRef.current = couriersData || []
-    setLoading(false)
+    if (!silent) setLoading(false)
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  // Supabase Realtime
+  // Supabase Realtime — recarga completa en cada evento para garantizar datos correctos
   useEffect(() => {
     const channel = supabase
-      .channel('orders-changes')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
-        setOrders(prev =>
-          prev.map(order => {
-            if (order.id !== payload.new.id) return order
-            // Resolver nombre del mensajero desde el ref (no depende del closure)
-            let courierData = order.couriers
-            if (payload.new.courier_id !== order.courier_id) {
-              const found = couriersRef.current.find(c => c.id === payload.new.courier_id)
-              courierData = found ? { name: found.name } : null
-            }
-            if (!payload.new.courier_id) courierData = null
-            return { ...order, ...payload.new, couriers: courierData }
-          })
-        )
-      })
+      .channel('orders-realtime-' + Date.now())
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, () => {
-        fetchData()
+        fetchData(true)
       })
-      .subscribe()
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => {
+        fetchData(true)
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'orders' }, () => {
+        fetchData(true)
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('[Dashboard] Realtime conectado')
+        }
+      })
 
     return () => { supabase.removeChannel(channel) }
   }, [fetchData])
