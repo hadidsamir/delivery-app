@@ -49,12 +49,11 @@ export default function Login() {
             src="/logo.png"
             alt="1012 Delivery"
             style={{
-              height: '160px',
+              height: '210px',
               width: 'auto',
               objectFit: 'contain',
               margin: '0 auto',
               display: 'block',
-              filter: 'drop-shadow(0 0 30px rgba(249,115,22,0.3))',
             }}
           />
           <p style={{
@@ -280,7 +279,7 @@ export default function Login() {
           marginTop: '24px',
           letterSpacing: '0.05em',
         }}>
-          © 2025 1012 Delivery · Todos los derechos reservados
+          © 2026 1012 Delivery · Todos los derechos reservados
         </p>
 
       </div>
