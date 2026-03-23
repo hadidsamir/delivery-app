@@ -245,7 +245,7 @@ export default function Dashboard() {
             <h2 className="text-base font-bold text-gray-900 dark:text-white">Todos los pedidos</h2>
             <button
               onClick={() => navigate('/orders/new')}
-              className="flex items-center gap-2 text-black text-sm font-bold px-5 py-3 rounded-xl transition-colors shadow-sm"
+              className="flex items-center gap-2 text-black text-base font-bold px-8 py-4 rounded-xl transition-colors shadow-sm"
               style={{ backgroundColor: '#00E8E1' }}
               onMouseEnter={e => e.currentTarget.style.backgroundColor = '#00c9c3'}
               onMouseLeave={e => e.currentTarget.style.backgroundColor = '#00E8E1'}
