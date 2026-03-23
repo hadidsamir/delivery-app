@@ -202,7 +202,8 @@ export default function NewOrder() {
               <button
                 type="button"
                 onClick={addItem}
-                className="flex items-center gap-1.5 text-orange-500 hover:text-orange-600 text-sm font-semibold transition-colors"
+                className="flex items-center gap-1.5 text-sm font-semibold transition-colors"
+                style={{ color: '#00E8E1' }}
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -262,14 +263,17 @@ export default function NewOrder() {
             <button
               type="button"
               onClick={() => navigate('/dashboard')}
-              className="flex-1 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-medium py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              className="flex-1 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-medium py-4 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors shadow-sm shadow-orange-200 dark:shadow-none"
+              className="flex-1 disabled:opacity-50 text-black font-bold py-4 rounded-xl transition-colors shadow-sm"
+              style={{ backgroundColor: '#00E8E1' }}
+              onMouseEnter={e => e.currentTarget.style.backgroundColor = '#00c9c3'}
+              onMouseLeave={e => e.currentTarget.style.backgroundColor = '#00E8E1'}
             >
               {loading ? (
                 <span className="flex items-center justify-center gap-2">

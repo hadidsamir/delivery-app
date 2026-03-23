@@ -107,19 +107,33 @@ export default function Dashboard() {
   async function handleAssign() {
     if (!assignCourierId) return
     setAssigning(true)
+    const orderId = assignOrder.id
     const selectedCourier = couriers.find(c => c.id === assignCourierId)
+    const currentStatus = assignOrder.status
 
-    // Actualización optimista: la UI cambia antes de esperar a Supabase
+    // Al reasignar un pedido rechazado (sin mensajero), volver a 'pendiente'
+    const newStatus = currentStatus === 'entregado' ? currentStatus : 'pendiente'
+
+    const { error } = await supabase
+      .from('orders')
+      .update({ courier_id: assignCourierId, status: newStatus })
+      .eq('id', orderId)
+
+    if (error) {
+      alert('Error al asignar mensajero: ' + error.message)
+      setAssigning(false)
+      return
+    }
+
+    // Actualización optimista tras confirmar Supabase
     setOrders(prev => prev.map(o =>
-      o.id === assignOrder.id
-        ? { ...o, courier_id: assignCourierId, couriers: { name: selectedCourier?.name || '' } }
+      o.id === orderId
+        ? { ...o, courier_id: assignCourierId, status: newStatus, couriers: { name: selectedCourier?.name || '' } }
         : o
     ))
     setAssignOrder(null)
     setAssignCourierId('')
     setAssigning(false)
-
-    await supabase.from('orders').update({ courier_id: assignCourierId }).eq('id', assignOrder.id)
   }
 
   return (
@@ -231,7 +245,10 @@ export default function Dashboard() {
             <h2 className="text-base font-bold text-gray-900 dark:text-white">Todos los pedidos</h2>
             <button
               onClick={() => navigate('/orders/new')}
-              className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold px-4 py-2.5 rounded-xl transition-colors shadow-sm shadow-orange-200 dark:shadow-none"
+              className="flex items-center gap-2 text-black text-sm font-bold px-5 py-3 rounded-xl transition-colors shadow-sm"
+              style={{ backgroundColor: '#00E8E1' }}
+              onMouseEnter={e => e.currentTarget.style.backgroundColor = '#00c9c3'}
+              onMouseLeave={e => e.currentTarget.style.backgroundColor = '#00E8E1'}
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
