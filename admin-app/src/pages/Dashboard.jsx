@@ -66,26 +66,79 @@ export default function Dashboard() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  // Supabase Realtime — debounce para evitar múltiples fetchData simultáneos
+  // Supabase Realtime — con reconexión automática y polling de respaldo
   useEffect(() => {
     let debounceTimer = null
+    let reconnectTimer = null
+    let pollTimer = null
+    let currentChannel = null
+
     const debouncedFetch = () => {
       if (debounceTimer) clearTimeout(debounceTimer)
       debounceTimer = setTimeout(() => fetchData(true), 300)
     }
 
-    const channel = supabase
-      .channel('orders-realtime-' + Date.now())
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, debouncedFetch)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, debouncedFetch)
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'orders' }, debouncedFetch)
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') console.log('[Dashboard] Realtime conectado')
-      })
+    function subscribe() {
+      if (currentChannel) supabase.removeChannel(currentChannel)
+
+      currentChannel = supabase
+        .channel('orders-realtime-' + Date.now())
+        // INSERT: necesita fetch completo para obtener datos JOIN (nombre mensajero)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, debouncedFetch)
+        // UPDATE: aplicar payload.new al instante en el estado local,
+        // SIN esperar el re-fetch (que puede devolver datos viejos por latencia de réplica).
+        // El debouncedFetch posterior sincroniza los datos JOIN (nombre mensajero).
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
+          if (payload.new?.id) {
+            setOrders(prev => prev.map(o =>
+              o.id === payload.new.id
+                ? { ...o, ...payload.new, couriers: o.couriers } // preservar JOIN
+                : o
+            ))
+          }
+          debouncedFetch() // fetch diferido para refrescar JOIN (courier name)
+        })
+        // DELETE: eliminar directamente del estado local
+        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'orders' }, (payload) => {
+          if (payload.old?.id) {
+            setOrders(prev => prev.filter(o => o.id !== payload.old.id))
+          }
+          debouncedFetch()
+        })
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('[Dashboard] Realtime conectado')
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn('[Dashboard] Canal perdido, reconectando...')
+            if (reconnectTimer) clearTimeout(reconnectTimer)
+            reconnectTimer = setTimeout(() => {
+              fetchData(true)
+              subscribe()
+            }, 3000)
+          }
+        })
+    }
+
+    subscribe()
+
+    // Polling de respaldo cada 30s — garantiza actualización aunque Realtime falle
+    pollTimer = setInterval(() => fetchData(true), 30000)
+
+    // Refrescar y reconectar cuando la pestaña vuelve a ser visible
+    function onVisibilityChange() {
+      if (!document.hidden) {
+        fetchData(true)
+        subscribe()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer)
-      supabase.removeChannel(channel)
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (pollTimer) clearInterval(pollTimer)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      if (currentChannel) supabase.removeChannel(currentChannel)
     }
   }, [fetchData])
 
@@ -414,13 +467,17 @@ export default function Dashboard() {
             </div>
 
             <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3.5 text-sm text-gray-700 dark:text-gray-300 break-all mb-4 font-mono leading-relaxed">
-              {CLIENT_URL}/track/{trackingOrder.tracking_token}
+              {trackingOrder.tracking_token
+                ? `${CLIENT_URL}/track/${trackingOrder.tracking_token}`
+                : <span className="text-yellow-500 dark:text-yellow-400 font-sans">⚠ Este pedido aún no tiene link de rastreo generado</span>
+              }
             </div>
 
             <div className="flex flex-col gap-2.5">
               <button
                 onClick={() => copyLink(trackingOrder.tracking_token)}
-                className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition-colors"
+                disabled={!trackingOrder.tracking_token}
+                className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl transition-colors"
               >
                 {copied ? (
                   <>
@@ -439,10 +496,11 @@ export default function Dashboard() {
                 )}
               </button>
               <a
-                href={`https://wa.me/?text=${encodeURIComponent(`Rastrea tu pedido en tiempo real: ${CLIENT_URL}/track/${trackingOrder.tracking_token}`)}`}
+                href={trackingOrder.tracking_token ? `https://wa.me/?text=${encodeURIComponent(`Rastrea tu pedido en tiempo real: ${CLIENT_URL}/track/${trackingOrder.tracking_token}`)}` : undefined}
+                onClick={!trackingOrder.tracking_token ? e => e.preventDefault() : undefined}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl transition-colors"
+                className={`w-full flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl transition-colors${!trackingOrder.tracking_token ? ' opacity-40 cursor-not-allowed pointer-events-none' : ''}`}
               >
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
