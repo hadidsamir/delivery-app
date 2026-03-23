@@ -99,10 +99,15 @@ export default function TrackingScreen({ route, navigation }) {
     setDelivering(true)
     try {
       await stopGPS()
-      await supabase.from('orders').update({ status: 'entregado' }).eq('id', order.id)
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'entregado' })
+        .eq('id', order.id)
+      if (error) throw error
       if (isMounted.current) navigation.replace('Orders')
     } catch (err) {
-      Alert.alert('Error', err.message)
+      console.error('[markDelivered]', err.message)
+      Alert.alert('Error', 'No se pudo marcar como entregado. Intenta de nuevo.')
       if (isMounted.current) setDelivering(false)
     }
   }

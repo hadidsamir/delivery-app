@@ -179,15 +179,21 @@ export default function OrdersScreen({ navigation }) {
   }
 
   async function fetchOrders(courierId) {
-    const { data } = await supabase
-      .from('orders')
-      .select('*')
-      .eq('courier_id', courierId)
-      .in('status', ['pendiente', 'en_camino'])
-      .order('created_at', { ascending: true })
-    setOrders(data || [])
-    setLoading(false)
-    setRefreshing(false)
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('courier_id', courierId)
+        .in('status', ['pendiente', 'en_camino'])
+        .order('created_at', { ascending: true })
+      if (error) throw error
+      setOrders(data || [])
+    } catch (err) {
+      console.error('[Orders] Error cargando pedidos:', err.message)
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
   }
 
   async function acceptOrder(orderId) {

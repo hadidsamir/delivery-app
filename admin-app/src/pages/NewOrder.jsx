@@ -47,9 +47,12 @@ export default function NewOrder() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!form.courier_id) return alert('Selecciona un mensajero')
+    if (!form.client_name.trim())      return alert('Ingresa el nombre del cliente')
+    if (!form.client_phone.trim())     return alert('Ingresa el teléfono del cliente')
+    if (!form.delivery_address.trim()) return alert('Ingresa la dirección de entrega')
+    if (!form.courier_id)              return alert('Selecciona un mensajero')
     const validItems = items.filter(i => i.name.trim())
-    if (!validItems.length) return alert('Agrega al menos un ítem')
+    if (!validItems.length)            return alert('Agrega al menos un ítem')
 
     setLoading(true)
     const { error } = await supabase.from('orders').insert({

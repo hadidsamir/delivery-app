@@ -44,41 +44,49 @@ export default function Dashboard() {
 
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
-    const [{ data: ordersData }, { data: couriersData }] = await Promise.all([
-      supabase
-        .from('orders')
-        .select('*, couriers(name)')
-        .order('created_at', { ascending: false }),
-      supabase.from('couriers').select('id, name').eq('is_active', true),
-    ])
-    setOrders(ordersData || [])
-    setCouriers(couriersData || [])
-    couriersRef.current = couriersData || []
-    if (!silent) setLoading(false)
+    try {
+      const [ordersResult, couriersResult] = await Promise.allSettled([
+        supabase
+          .from('orders')
+          .select('*, couriers(name)')
+          .order('created_at', { ascending: false }),
+        supabase.from('couriers').select('id, name').eq('is_active', true),
+      ])
+      const ordersData  = ordersResult.status  === 'fulfilled' ? (ordersResult.value.data  || []) : []
+      const couriersData = couriersResult.status === 'fulfilled' ? (couriersResult.value.data || []) : []
+      setOrders(ordersData)
+      setCouriers(couriersData)
+      couriersRef.current = couriersData
+    } catch (err) {
+      console.error('[Dashboard] Error cargando datos:', err)
+    } finally {
+      if (!silent) setLoading(false)
+    }
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  // Supabase Realtime — recarga completa en cada evento para garantizar datos correctos
+  // Supabase Realtime — debounce para evitar múltiples fetchData simultáneos
   useEffect(() => {
+    let debounceTimer = null
+    const debouncedFetch = () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => fetchData(true), 300)
+    }
+
     const channel = supabase
       .channel('orders-realtime-' + Date.now())
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, () => {
-        fetchData(true)
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => {
-        fetchData(true)
-      })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'orders' }, () => {
-        fetchData(true)
-      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, debouncedFetch)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, debouncedFetch)
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'orders' }, debouncedFetch)
       .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('[Dashboard] Realtime conectado')
-        }
+        if (status === 'SUBSCRIBED') console.log('[Dashboard] Realtime conectado')
       })
 
-    return () => { supabase.removeChannel(channel) }
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
+      supabase.removeChannel(channel)
+    }
   }, [fetchData])
 
   async function logout() {
