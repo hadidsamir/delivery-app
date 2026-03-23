@@ -245,10 +245,10 @@ export default function Dashboard() {
             <h2 className="text-base font-bold text-gray-900 dark:text-white">Todos los pedidos</h2>
             <button
               onClick={() => navigate('/orders/new')}
-              className="flex items-center gap-2 text-black text-base font-bold px-8 py-4 rounded-xl transition-colors shadow-sm"
-              style={{ backgroundColor: '#00E8E1' }}
-              onMouseEnter={e => e.currentTarget.style.backgroundColor = '#00c9c3'}
-              onMouseLeave={e => e.currentTarget.style.backgroundColor = '#00E8E1'}
+              className="flex items-center gap-2 text-black text-sm font-bold px-6 py-2.5 rounded-full transition-all shadow-md"
+              style={{ backgroundColor: '#00E8E1', letterSpacing: '0.04em', boxShadow: '0 4px 18px rgba(0,232,225,0.35)' }}
+              onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#00d4ce'; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 24px rgba(0,232,225,0.5)' }}
+              onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#00E8E1'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 18px rgba(0,232,225,0.35)' }}
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
