@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from 'react'
-import { GoogleMap, useJsApiLoader, Marker, Polyline } from '@react-google-maps/api'
+import { GoogleMap, useJsApiLoader, Marker } from '@react-google-maps/api'
 
 const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY
 
@@ -116,7 +116,7 @@ function TrackingMap({ courierLocation, deliveryAddress, deliveryLat, deliveryLn
 
   if (!isLoaded) {
     return (
-      <div className="bg-gray-100 rounded-2xl flex items-center justify-center" style={{ height: 350 }}>
+      <div className="bg-gray-100 rounded-2xl flex items-center justify-center" style={{ height: 'clamp(300px, 55vw, 440px)' }}>
         <div className="w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     )
@@ -124,9 +124,22 @@ function TrackingMap({ courierLocation, deliveryAddress, deliveryLat, deliveryLn
 
   const center = courierLocation || destinationCoords || DEFAULT_CENTER
 
+  // Ícono de destino: pin rojo con SVG embebido (sin depender de URL externa)
+  const destinationIcon = {
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
+      <svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">
+        <path d="M18 0C8.06 0 0 8.06 0 18c0 13.5 18 26 18 26S36 31.5 36 18C36 8.06 27.94 0 18 0z" fill="#1D4ED8"/>
+        <circle cx="18" cy="18" r="7" fill="white"/>
+      </svg>
+    `)}`,
+    scaledSize: new window.google.maps.Size(36, 44),
+    anchor: new window.google.maps.Point(18, 44),
+  }
+
   return (
     <div className="space-y-2">
-      <div className="rounded-2xl overflow-hidden shadow-md" style={{ height: 350 }}>
+      {/* Mapa — altura adaptada al tamaño de pantalla */}
+      <div className="rounded-2xl overflow-hidden shadow-lg" style={{ height: 'clamp(300px, 55vw, 440px)' }}>
         <GoogleMap
           mapContainerStyle={{ width: '100%', height: '100%' }}
           center={center}
@@ -136,55 +149,41 @@ function TrackingMap({ courierLocation, deliveryAddress, deliveryLat, deliveryLn
             styles: mapStyles,
             disableDefaultUI: true,
             zoomControl: true,
+            zoomControlOptions: {
+              position: window.google.maps.ControlPosition.RIGHT_CENTER,
+            },
+            // Un solo dedo mueve el mapa en móvil (sin requerir dos dedos)
+            gestureHandling: 'greedy',
+            // Mejora visual
+            mapTypeControl: false,
+            streetViewControl: false,
+            fullscreenControl: false,
           }}
         >
-          {/* Marcador mensajero — círculo naranja */}
+          {/* Mensajero — círculo naranja con borde blanco */}
           {courierLocation && (
             <Marker
               position={courierLocation}
               icon={{
                 path: window.google.maps.SymbolPath.CIRCLE,
-                scale: 12,
+                scale: 13,
                 fillColor: '#F97316',
                 fillOpacity: 1,
-                strokeColor: '#fff',
+                strokeColor: '#ffffff',
                 strokeWeight: 3,
               }}
               title="Tu mensajero"
+              zIndex={2}
             />
           )}
 
-          {/* Marcador destino — azul */}
+          {/* Destino — pin azul */}
           {destinationCoords && (
             <Marker
               position={destinationCoords}
-              icon={{
-                url: 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png',
-                scaledSize: new window.google.maps.Size(40, 40),
-              }}
+              icon={destinationIcon}
               title="Dirección de entrega"
-            />
-          )}
-
-          {/* Línea punteada naranja entre mensajero y destino */}
-          {courierLocation && destinationCoords && (
-            <Polyline
-              path={[courierLocation, destinationCoords]}
-              options={{
-                strokeColor: '#F97316',
-                strokeOpacity: 0,
-                strokeWeight: 3,
-                icons: [{
-                  icon: {
-                    path: 'M 0,-1 0,1',
-                    strokeOpacity: 0.8,
-                    strokeColor: '#F97316',
-                    scale: 3,
-                  },
-                  offset: '0',
-                  repeat: '15px',
-                }],
-              }}
+              zIndex={1}
             />
           )}
         </GoogleMap>
@@ -196,11 +195,11 @@ function TrackingMap({ courierLocation, deliveryAddress, deliveryLat, deliveryLn
       {/* Leyenda */}
       <div className="flex items-center justify-center gap-6 text-xs text-gray-500">
         <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-orange-500 inline-block"></span>
+          <span className="w-3 h-3 rounded-full bg-orange-500 inline-block shrink-0"></span>
           <span>Tu mensajero</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="text-base leading-none">📍</span>
+          <span className="w-3 h-3 rounded-full bg-blue-700 inline-block shrink-0"></span>
           <span>Dirección de entrega</span>
         </div>
       </div>
