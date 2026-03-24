@@ -66,57 +66,60 @@ export default function Dashboard() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  // Supabase Realtime — con reconexión automática y polling de respaldo
+  // Supabase Realtime + polling de respaldo
   useEffect(() => {
-    let debounceTimer = null
     let reconnectTimer = null
-    let pollTimer = null
-    let currentChannel = null
-
-    const debouncedFetch = () => {
-      if (debounceTimer) clearTimeout(debounceTimer)
-      debounceTimer = setTimeout(() => fetchData(true), 300)
-    }
+    let pollTimer     = null
+    let channel       = null
+    let active        = true   // flag para ignorar callbacks tras desmontaje
 
     function subscribe() {
-      if (currentChannel) supabase.removeChannel(currentChannel)
+      // Eliminar canal anterior si existe
+      if (channel) {
+        supabase.removeChannel(channel)
+        channel = null
+      }
+      if (!active) return
 
-      currentChannel = supabase
-        .channel('orders-realtime-' + Date.now())
-        // INSERT: necesita fetch completo para obtener datos JOIN (nombre mensajero)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, debouncedFetch)
-        // UPDATE: aplicar payload.new DIRECTAMENTE al estado local.
-        // NO llamar debouncedFetch — la réplica de lectura de Supabase puede tardar
-        // varios segundos en reflejar el cambio, sobreescribiendo el estado correcto
-        // y haciendo que el texto del estado no se actualice visualmente.
-        // payload.new ya contiene TODOS los campos del pedido (REPLICA IDENTITY DEFAULT).
-        // El nombre del mensajero (JOIN) se preserva de o.couriers; si cambia,
-        // el polling de 30s lo sincronizará automáticamente.
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
-          if (payload.new?.id) {
+      channel = supabase
+        .channel('dashboard-orders')
+        // INSERT → fetch completo para obtener JOIN courier name
+        .on('postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'orders' },
+          () => { if (active) fetchData(true) }
+        )
+        // UPDATE → aplicar payload.new al estado al instante.
+        // REPLICA IDENTITY FULL garantiza que payload.new tiene TODAS las columnas.
+        // NO hacemos re-fetch para no sobreescribir con datos obsoletos de la réplica.
+        .on('postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'orders' },
+          (payload) => {
+            if (!active || !payload.new?.id) return
             setOrders(prev => prev.map(o =>
               o.id === payload.new.id
-                ? { ...o, ...payload.new, couriers: o.couriers } // preservar JOIN
+                ? { ...o, ...payload.new, couriers: o.couriers }
                 : o
             ))
           }
-        })
-        // DELETE: eliminar directamente del estado local
-        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'orders' }, (payload) => {
-          if (payload.old?.id) {
-            setOrders(prev => prev.filter(o => o.id !== payload.old.id))
+        )
+        // DELETE → eliminar del estado local
+        .on('postgres_changes',
+          { event: 'DELETE', schema: 'public', table: 'orders' },
+          (payload) => {
+            if (!active) return
+            if (payload.old?.id) {
+              setOrders(prev => prev.filter(o => o.id !== payload.old.id))
+            }
+            fetchData(true)
           }
-          debouncedFetch()
-        })
+        )
         .subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            console.log('[Dashboard] Realtime conectado')
-          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-            console.warn('[Dashboard] Canal perdido, reconectando...')
+          console.log('[Dashboard] Realtime:', status)
+          if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') && active) {
+            // Reconectar tras 3 segundos y hacer fetch para recuperar cambios perdidos
             if (reconnectTimer) clearTimeout(reconnectTimer)
             reconnectTimer = setTimeout(() => {
-              fetchData(true)
-              subscribe()
+              if (active) { fetchData(true); subscribe() }
             }, 3000)
           }
         })
@@ -124,24 +127,23 @@ export default function Dashboard() {
 
     subscribe()
 
-    // Polling de respaldo cada 30s — garantiza actualización aunque Realtime falle
-    pollTimer = setInterval(() => fetchData(true), 30000)
+    // Polling cada 5 s — garantiza actualización aunque Realtime falle o se pierda un evento
+    pollTimer = setInterval(() => { if (active) fetchData(true) }, 5000)
 
-    // Refrescar y reconectar cuando la pestaña vuelve a ser visible
+    // Al volver a la pestaña: solo refrescar datos, NO recrear el canal.
+    // Recrear el canal en cada visibilitychange destruía la conexión WebSocket
+    // activa y causaba pérdida de eventos durante la reconexión.
     function onVisibilityChange() {
-      if (!document.hidden) {
-        fetchData(true)
-        subscribe()
-      }
+      if (!document.hidden && active) fetchData(true)
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
 
     return () => {
-      if (debounceTimer) clearTimeout(debounceTimer)
+      active = false
       if (reconnectTimer) clearTimeout(reconnectTimer)
-      if (pollTimer) clearInterval(pollTimer)
+      if (pollTimer)      clearInterval(pollTimer)
       document.removeEventListener('visibilitychange', onVisibilityChange)
-      if (currentChannel) supabase.removeChannel(currentChannel)
+      if (channel) supabase.removeChannel(channel)
     }
   }, [fetchData])
 
