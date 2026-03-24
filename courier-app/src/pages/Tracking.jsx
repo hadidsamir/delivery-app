@@ -83,15 +83,34 @@ export default function Tracking() {
         navigator.geolocation.clearWatch(watchIdRef.current)
         watchIdRef.current = null
       }
-      if (wakeLockRef.current) { wakeLockRef.current.release(); wakeLockRef.current = null }
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {})
+        wakeLockRef.current = null
+      }
+      // Limpiar listener de visibilidad registrado en requestWakeLock
+      if (wakeLockRef._visibilityHandler) {
+        document.removeEventListener('visibilitychange', wakeLockRef._visibilityHandler)
+        wakeLockRef._visibilityHandler = null
+      }
     }
   }, [])
 
   async function fetchOrder(courierData) {
-    const { data } = await supabase.from('orders').select('*').eq('id', orderId).single()
-    setOrder(data)
-    setLoading(false)
-    if (data) startTracking(data, courierData)
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('id', orderId)
+        .single()
+      if (error) throw error
+      setOrder(data)
+      if (data) startTracking(data, courierData)
+    } catch (err) {
+      console.error('[Tracking] Error cargando pedido:', err.message)
+      setOrder(null)
+    } finally {
+      setLoading(false)
+    }
   }
 
   // ── 4. Wake Lock ─────────────────────────────────────────────────────────
@@ -99,11 +118,17 @@ export default function Tracking() {
     if (!('wakeLock' in navigator)) return
     try {
       wakeLockRef.current = await navigator.wakeLock.request('screen')
-      document.addEventListener('visibilitychange', async () => {
+      // Re-adquirir WakeLock al volver al primer plano (se libera automáticamente al minimizar)
+      const onVisibility = async () => {
         if (document.visibilityState === 'visible' && !wakeLockRef.current) {
-          wakeLockRef.current = await navigator.wakeLock.request('screen')
+          try {
+            wakeLockRef.current = await navigator.wakeLock.request('screen')
+          } catch {}
         }
-      })
+      }
+      document.addEventListener('visibilitychange', onVisibility)
+      // Guardar referencia para limpiar en el cleanup del useEffect
+      wakeLockRef._visibilityHandler = onVisibility
     } catch (err) {
       console.warn('[WakeLock] No disponible:', err)
     }
@@ -184,11 +209,18 @@ export default function Tracking() {
   async function markDelivered() {
     setDelivering(true)
     try {
-      await axios.put(`${BACKEND_URL}/api/order/${orderId}/status`, { status: 'entregado' })
+      const res = await axios.put(
+        `${BACKEND_URL}/api/order/${orderId}/status`,
+        { status: 'entregado' },
+        { timeout: 10000 }
+      )
+      if (!res.data?.order) throw new Error('Respuesta inesperada del servidor')
       stopTracking()
       navigate('/orders', { state: { message: '¡Pedido entregado exitosamente!' } })
-    } catch {
+    } catch (err) {
+      console.error('[Tracking] Error al marcar entregado:', err.message)
       setDelivering(false)
+      alert('No se pudo marcar como entregado. Verifica tu conexión e intenta de nuevo.')
     }
   }
 

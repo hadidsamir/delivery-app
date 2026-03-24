@@ -25,18 +25,44 @@ Notifications.addNotificationResponseReceivedListener(async (response) => {
 
   try {
     if (action === 'aceptar') {
-      // La app se abre sola (opensAppToForeground: true)
-      // Solo marcamos en_camino — el mensajero verá el pedido en la app
-      await supabase.from('orders')
-        .update({ status: 'en_camino' })
+      // Descartar la notificación del sistema
+      await Notifications.dismissAllNotificationsAsync().catch(() => {})
+
+      // Recuperar courierId para restaurar el mensajero si fue rechazado antes
+      let courierId = null
+      try {
+        const raw = await AsyncStorage.getItem('courier')
+        if (raw) courierId = JSON.parse(raw)?.id
+      } catch {}
+
+      const update = { status: 'en_camino' }
+      if (courierId) update.courier_id = courierId
+
+      const { error: acceptErr } = await supabase.from('orders')
+        .update(update)
         .eq('id', orderId)
+      if (acceptErr) throw acceptErr
       console.log('[App] Pedido aceptado:', orderId)
+
     } else if (action === 'rechazar') {
-      await supabase.from('orders')
+      // CRÍTICO: en Android las acciones sin opensAppToForeground nunca
+      // descartan la notificación automáticamente — hay que hacerlo primero
+      // e incondicionalmente antes de cualquier operación async.
+      await Notifications.dismissAllNotificationsAsync().catch(() => {})
+      await Notifications.dismissNotificationAsync(notifId).catch(() => {})
+
+      const { error: rejectErr } = await supabase.from('orders')
         .update({ status: 'pendiente', courier_id: null })
         .eq('id', orderId)
-      // Descartar la notificación para que desaparezca del panel
-      await Notifications.dismissNotificationAsync(notifId).catch(() => {})
+      if (rejectErr) throw rejectErr
+
+      // Limpiar keepaliveNotified para que si se reasigna llegue nueva notificación
+      try {
+        const raw = await AsyncStorage.getItem('keepaliveNotified') || '[]'
+        const filtered = JSON.parse(raw).filter(id => id !== orderId)
+        await AsyncStorage.setItem('keepaliveNotified', JSON.stringify(filtered))
+      } catch {}
+
       console.log('[App] Pedido rechazado y notificación descartada:', orderId)
     }
   } catch (err) {

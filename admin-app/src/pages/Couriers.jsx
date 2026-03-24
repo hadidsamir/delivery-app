@@ -26,12 +26,19 @@ export default function Couriers() {
 
   const fetchCouriers = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase
-      .from('couriers')
-      .select('*')
-      .order('created_at', { ascending: false })
-    setCouriers(data || [])
-    setLoading(false)
+    try {
+      const { data, error } = await supabase
+        .from('couriers')
+        .select('*')
+        .order('created_at', { ascending: false })
+      if (error) throw error
+      setCouriers(data || [])
+    } catch (err) {
+      console.error('[Couriers] Error cargando mensajeros:', err.message)
+      alert('Error al cargar mensajeros: ' + err.message)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => { fetchCouriers() }, [fetchCouriers])
@@ -81,8 +88,17 @@ export default function Couriers() {
   }
 
   async function toggleActive(courier) {
-    await supabase.from('couriers').update({ is_active: !courier.is_active }).eq('id', courier.id)
-    fetchCouriers()
+    try {
+      const { error } = await supabase
+        .from('couriers')
+        .update({ is_active: !courier.is_active })
+        .eq('id', courier.id)
+      if (error) throw error
+      fetchCouriers()
+    } catch (err) {
+      console.error('[Couriers] Error cambiando estado:', err.message)
+      alert('No se pudo cambiar el estado del mensajero: ' + err.message)
+    }
   }
 
   return (

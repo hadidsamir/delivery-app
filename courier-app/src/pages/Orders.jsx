@@ -70,30 +70,56 @@ export default function Orders() {
 
   async function fetchOrders(courierId) {
     setLoading(true)
-    const { data } = await supabase
-      .from('orders')
-      .select('*')
-      .eq('courier_id', courierId)
-      .in('status', ['pendiente', 'en_camino'])
-      .order('created_at', { ascending: true })
-    setOrders(data || [])
-    setLoading(false)
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('courier_id', courierId)
+        .in('status', ['pendiente', 'en_camino'])
+        .order('created_at', { ascending: true })
+      if (error) throw error
+      setOrders(data || [])
+    } catch (err) {
+      console.error('[Orders] Error cargando pedidos:', err.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function acceptOrder(orderId) {
     setActionLoading(orderId)
-    await supabase.from('orders').update({ status: 'en_camino' }).eq('id', orderId)
-    setActionLoading(null)
-    fetchOrders(courier.id)
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'en_camino' })
+        .eq('id', orderId)
+      if (error) throw error
+      fetchOrders(courier.id)
+    } catch (err) {
+      console.error('[Orders] Error aceptando pedido:', err.message)
+      alert('No se pudo aceptar el pedido. Intenta de nuevo.')
+    } finally {
+      setActionLoading(null)
+    }
   }
 
   async function rejectOrder(orderId) {
     const confirmed = window.confirm('¿Rechazar este pedido? Será devuelto al administrador para reasignarlo.')
     if (!confirmed) return
     setActionLoading(orderId + '-reject')
-    await supabase.from('orders').update({ status: 'pendiente', courier_id: null }).eq('id', orderId)
-    setActionLoading(null)
-    fetchOrders(courier.id)
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'pendiente', courier_id: null })
+        .eq('id', orderId)
+      if (error) throw error
+      fetchOrders(courier.id)
+    } catch (err) {
+      console.error('[Orders] Error rechazando pedido:', err.message)
+      alert('No se pudo rechazar el pedido. Intenta de nuevo.')
+    } finally {
+      setActionLoading(null)
+    }
   }
 
   function handleLogout() {

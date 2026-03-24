@@ -16,6 +16,10 @@ export default function LoginScreen({ navigation }) {
       Alert.alert('Error', 'Ingresa tu numero de telefono')
       return
     }
+    if (phoneClean.replace(/\D/g, '').length < 7) {
+      Alert.alert('Error', 'Ingresa un número de teléfono válido')
+      return
+    }
 
     setLoading(true)
     try {

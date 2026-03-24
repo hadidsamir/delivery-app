@@ -99,15 +99,21 @@ export default function TrackingScreen({ route, navigation }) {
     setDelivering(true)
     try {
       await stopGPS()
-      const { error } = await supabase
-        .from('orders')
-        .update({ status: 'entregado' })
-        .eq('id', order.id)
-      if (error) throw error
+
+      // Timeout de 10 segundos para no dejar al mensajero bloqueado sin respuesta
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Tiempo de espera agotado. Revisa tu conexión.')), 10000)
+      )
+      const result = await Promise.race([
+        supabase.from('orders').update({ status: 'entregado' }).eq('id', order.id),
+        timeoutPromise,
+      ])
+
+      if (result.error) throw result.error
       if (isMounted.current) navigation.replace('Orders')
     } catch (err) {
       console.error('[markDelivered]', err.message)
-      Alert.alert('Error', 'No se pudo marcar como entregado. Intenta de nuevo.')
+      Alert.alert('Error', err.message || 'No se pudo marcar como entregado. Intenta de nuevo.')
       if (isMounted.current) setDelivering(false)
     }
   }

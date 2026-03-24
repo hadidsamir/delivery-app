@@ -64,15 +64,12 @@ export default function OrdersScreen({ navigation }) {
           })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' },
           async (payload) => {
-            const wasReassigned =
-              payload.new.courier_id === courierId &&
-              payload.old?.courier_id !== courierId &&
-              payload.new.status === 'pendiente'
-
+            // Solo refrescar lista — NO llamar notifyNewOrder en UPDATE.
+            // Razón: payload.old.courier_id es siempre undefined con REPLICA IDENTITY DEFAULT,
+            // lo que hace que wasReassigned sea siempre true y genere notificaciones duplicadas.
+            // Los pedidos reasignados llegan por KEEPALIVE_TASK (máx 30s de retraso).
             if (payload.new.courier_id === courierId || payload.old?.courier_id === courierId)
               fetchOrders(courierId)
-
-            if (wasReassigned) notifyNewOrder(payload.new)
           })
         .subscribe((status) => {
           console.log('[Realtime] Estado del canal:', status)
@@ -134,9 +131,19 @@ export default function OrdersScreen({ navigation }) {
 
   // Disparar notificación con botones Aceptar / Rechazar
   async function notifyNewOrder(order) {
-    // Evitar notificación duplicada para el mismo pedido
+    // Guard SINCRÓNICO primero — evita que llamadas concurrentes pasen todas el check
     if (notifiedOrders.current.has(order.id)) return
-    addNotified(order.id)
+    addNotified(order.id)  // marcar ANTES de cualquier await
+
+    // Verificar también en AsyncStorage (compartido con KEEPALIVE_TASK)
+    // para evitar duplicados entre el canal Realtime y el background task
+    try {
+      const raw = await AsyncStorage.getItem('keepaliveNotified') || '[]'
+      const arr = JSON.parse(raw)
+      if (arr.includes(order.id)) return  // KEEPALIVE ya lo notificó
+      arr.push(order.id)
+      await AsyncStorage.setItem('keepaliveNotified', JSON.stringify(arr.slice(-50)))
+    } catch {}
     try {
       await Notifications.scheduleNotificationAsync({
         content: {
@@ -199,7 +206,12 @@ export default function OrdersScreen({ navigation }) {
   async function acceptOrder(orderId) {
     if (!courier?.id) return
     try {
-      await supabase.from('orders').update({ status: 'en_camino' }).eq('id', orderId)
+      const { error } = await supabase.from('orders')
+        .update({ status: 'en_camino', courier_id: courier.id })
+        .eq('id', orderId)
+      if (error) throw error
+      // Descartar notificaciones del sistema al aceptar
+      await Notifications.dismissAllNotificationsAsync().catch(() => {})
       fetchOrders(courier.id)
     } catch (err) {
       Alert.alert('Error', 'No se pudo aceptar el pedido: ' + err.message)
@@ -214,9 +226,17 @@ export default function OrdersScreen({ navigation }) {
         text: 'Rechazar', style: 'destructive',
         onPress: async () => {
           try {
-            await supabase.from('orders').update({ status: 'pendiente', courier_id: null }).eq('id', orderId)
-            // Limpiar del Set para permitir nueva notificación si se reasigna
+            const { error } = await supabase.from('orders').update({ status: 'pendiente', courier_id: null }).eq('id', orderId)
+            if (error) throw error
+            // Descartar notificaciones del sistema de forma inmediata
+            await Notifications.dismissAllNotificationsAsync().catch(() => {})
+            // Limpiar del Set en memoria y en AsyncStorage para que si se reasigna llegue nueva notificación
             notifiedOrders.current.delete(orderId)
+            try {
+              const raw = await AsyncStorage.getItem('keepaliveNotified') || '[]'
+              const filtered = JSON.parse(raw).filter(id => id !== orderId)
+              await AsyncStorage.setItem('keepaliveNotified', JSON.stringify(filtered))
+            } catch {}
             fetchOrders(courier.id)
           } catch (err) {
             Alert.alert('Error', 'No se pudo rechazar el pedido: ' + err.message)

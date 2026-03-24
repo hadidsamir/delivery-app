@@ -53,6 +53,8 @@ export default function NewOrder() {
     if (!form.courier_id)              return alert('Selecciona un mensajero')
     const validItems = items.filter(i => i.name.trim())
     if (!validItems.length)            return alert('Agrega al menos un ítem')
+    const badQty = validItems.find(i => !Number(i.qty) || Number(i.qty) < 1)
+    if (badQty)                        return alert('La cantidad de cada artículo debe ser mayor a 0')
 
     setLoading(true)
     const { error } = await supabase.from('orders').insert({

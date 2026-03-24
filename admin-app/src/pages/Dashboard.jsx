@@ -85,9 +85,13 @@ export default function Dashboard() {
         .channel('orders-realtime-' + Date.now())
         // INSERT: necesita fetch completo para obtener datos JOIN (nombre mensajero)
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, debouncedFetch)
-        // UPDATE: aplicar payload.new al instante en el estado local,
-        // SIN esperar el re-fetch (que puede devolver datos viejos por latencia de réplica).
-        // El debouncedFetch posterior sincroniza los datos JOIN (nombre mensajero).
+        // UPDATE: aplicar payload.new DIRECTAMENTE al estado local.
+        // NO llamar debouncedFetch — la réplica de lectura de Supabase puede tardar
+        // varios segundos en reflejar el cambio, sobreescribiendo el estado correcto
+        // y haciendo que el texto del estado no se actualice visualmente.
+        // payload.new ya contiene TODOS los campos del pedido (REPLICA IDENTITY DEFAULT).
+        // El nombre del mensajero (JOIN) se preserva de o.couriers; si cambia,
+        // el polling de 30s lo sincronizará automáticamente.
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
           if (payload.new?.id) {
             setOrders(prev => prev.map(o =>
@@ -96,7 +100,6 @@ export default function Dashboard() {
                 : o
             ))
           }
-          debouncedFetch() // fetch diferido para refrescar JOIN (courier name)
         })
         // DELETE: eliminar directamente del estado local
         .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'orders' }, (payload) => {

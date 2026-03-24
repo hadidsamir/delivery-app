@@ -87,22 +87,26 @@ io.on('connection', (socket) => {
   // El cliente envía { order_id, token } — verificamos que el token corresponda
   socket.on('join:order', async ({ order_id, token }) => {
     if (!order_id || !token) return;
+    try {
+      const { data: order, error } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('id', order_id)
+        .eq('tracking_token', token)
+        .single();
 
-    const { data: order } = await supabase
-      .from('orders')
-      .select('id')
-      .eq('id', order_id)
-      .eq('tracking_token', token)
-      .single();
+      if (error || !order) {
+        socket.emit('error:auth', { message: 'Token inválido' });
+        return;
+      }
 
-    if (!order) {
-      socket.emit('error:auth', { message: 'Token inválido' });
-      return;
+      const room = `order_${order_id}`;
+      socket.join(room);
+      console.log(`[socket] ${socket.id} se unió al room ${room}`);
+    } catch (err) {
+      console.error('[socket] Error en join:order:', err.message);
+      socket.emit('error:auth', { message: 'Error interno' });
     }
-
-    const room = `order_${order_id}`;
-    socket.join(room);
-    console.log(`[socket] ${socket.id} se unió al room ${room}`);
   });
 
   socket.on('disconnect', () => {
@@ -163,24 +167,29 @@ app.get('/api/order/:token', async (req, res) => {
     }
   }
 
-  const { count } = await supabase
-    .from('orders')
-    .select('id', { count: 'exact', head: true })
-    .eq('courier_id', order.courier_id)
-    .eq('status', 'en_camino');
+  // Consultas auxiliares independientes — fallos no bloquean la respuesta principal
+  const [countResult, locationResult] = await Promise.allSettled([
+    supabase
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('courier_id', order.courier_id)
+      .eq('status', 'en_camino'),
+    supabase
+      .from('courier_locations')
+      .select('latitude, longitude, updated_at')
+      .eq('order_id', order.id)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .single(),
+  ]);
 
-  const { data: location } = await supabase
-    .from('courier_locations')
-    .select('latitude, longitude, updated_at')
-    .eq('order_id', order.id)
-    .order('updated_at', { ascending: false })
-    .limit(1)
-    .single();
+  const count    = countResult.status    === 'fulfilled' ? (countResult.value.count    ?? 0)    : 0;
+  const location = locationResult.status === 'fulfilled' ? (locationResult.value.data  ?? null) : null;
 
   return res.json({
     order,
-    active_orders_count: count ?? 0,
-    last_location: location ?? null,
+    active_orders_count: count,
+    last_location: location,
   });
 });
 
@@ -203,24 +212,32 @@ app.post('/api/location', locationLimiter, async (req, res) => {
 
   const updated_at = new Date().toISOString();
 
+  // Emitir ubicación vía WebSocket inmediatamente (no esperar DB)
   io.to(`order_${order_id}`).emit('location:update', { latitude: lat, longitude: lng, updated_at });
 
-  const { data: existing } = await supabase
-    .from('courier_locations')
-    .select('id')
-    .eq('order_id', order_id)
-    .limit(1)
-    .single();
+  try {
+    const { data: existing } = await supabase
+      .from('courier_locations')
+      .select('id')
+      .eq('order_id', order_id)
+      .limit(1)
+      .single();
 
-  if (existing) {
-    await supabase
-      .from('courier_locations')
-      .update({ courier_id, latitude: lat, longitude: lng, updated_at })
-      .eq('order_id', order_id);
-  } else {
-    await supabase
-      .from('courier_locations')
-      .insert({ courier_id, order_id, latitude: lat, longitude: lng, updated_at });
+    if (existing) {
+      const { error } = await supabase
+        .from('courier_locations')
+        .update({ courier_id, latitude: lat, longitude: lng, updated_at })
+        .eq('order_id', order_id);
+      if (error) console.error('[location] Error actualizando ubicación:', error.message);
+    } else {
+      const { error } = await supabase
+        .from('courier_locations')
+        .insert({ courier_id, order_id, latitude: lat, longitude: lng, updated_at });
+      if (error) console.error('[location] Error insertando ubicación:', error.message);
+    }
+  } catch (err) {
+    console.error('[location] Error guardando en DB:', err.message);
+    // No retornar error al mensajero — la ubicación ya fue emitida por WebSocket
   }
 
   return res.json({ ok: true });
