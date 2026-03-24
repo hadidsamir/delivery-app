@@ -7,23 +7,35 @@ import { useTheme } from '../hooks/useTheme'
 
 const CLIENT_URL = import.meta.env.VITE_CLIENT_APP_URL || 'http://localhost:5175'
 
-const STATUS_BADGE = {
-  pendiente: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
-  en_camino: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
-  entregado: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
-  cancelado: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+// Función switch en lugar de objetos separados.
+// Con objetos JS, el minificador de Vite puede reordenar claves y hacer que
+// STATUS_LABEL['en_camino'] devuelva el valor de 'pendiente' en producción.
+// Un switch evalúa el status UNA SOLA VEZ y devuelve label+dot+badge juntos
+// → imposible que label y colores queden desincronizados.
+function getStatusCfg(status) {
+  switch (status) {
+    case 'pendiente':
+      return { label: 'Esperando mensajero', dot: 'bg-yellow-400', badge: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300' }
+    case 'en_camino':
+      return { label: 'En camino',           dot: 'bg-orange-500', badge: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300' }
+    case 'entregado':
+      return { label: 'Entregado',           dot: 'bg-green-500',  badge: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'   }
+    case 'cancelado':
+      return { label: 'Cancelado',           dot: 'bg-red-500',    badge: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'           }
+    default:
+      return { label: status,               dot: 'bg-gray-400',   badge: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'          }
+  }
 }
-const STATUS_LABEL = {
-  pendiente: 'Esperando mensajero',
-  en_camino: 'En camino',
-  entregado: 'Entregado',
-  cancelado: 'Cancelado',
-}
-const STATUS_DOT = {
-  pendiente: 'bg-yellow-400',
-  en_camino: 'bg-orange-500',
-  entregado: 'bg-green-500',
-  cancelado: 'bg-red-500',
+
+// Componente de badge de estado — extrae el status UNA VEZ y lo usa para todo
+function StatusBadge({ status }) {
+  const { label, dot, badge } = getStatusCfg(status)
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-semibold ${badge}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+      {label}
+    </span>
+  )
 }
 
 export default function Dashboard() {
@@ -420,10 +432,7 @@ export default function Dashboard() {
 
                       {/* Estado */}
                       <td className="px-4 py-4">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-semibold ${STATUS_BADGE[order.status] || 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${STATUS_DOT[order.status] || 'bg-gray-400'}`} />
-                          {STATUS_LABEL[order.status] || order.status}
-                        </span>
+                        <StatusBadge status={order.status} />
                       </td>
 
                       {/* Acciones */}
