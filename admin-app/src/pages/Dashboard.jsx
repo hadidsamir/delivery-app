@@ -52,11 +52,20 @@ export default function Dashboard() {
           .order('created_at', { ascending: false }),
         supabase.from('couriers').select('id, name').eq('is_active', true),
       ])
-      const ordersData  = ordersResult.status  === 'fulfilled' ? (ordersResult.value.data  || []) : []
-      const couriersData = couriersResult.status === 'fulfilled' ? (couriersResult.value.data || []) : []
-      setOrders(ordersData)
-      setCouriers(couriersData)
-      couriersRef.current = couriersData
+
+      // Solo actualizar state si la consulta fue exitosa y sin error de Supabase.
+      // Esto evita que un fallo de red o error de réplica borre los pedidos mostrados.
+      if (ordersResult.status === 'fulfilled' && !ordersResult.value.error) {
+        setOrders(ordersResult.value.data || [])
+      } else if (ordersResult.status === 'rejected') {
+        console.warn('[Dashboard] Error consultando pedidos:', ordersResult.reason)
+      }
+
+      if (couriersResult.status === 'fulfilled' && !couriersResult.value.error) {
+        const couriersData = couriersResult.value.data || []
+        setCouriers(couriersData)
+        couriersRef.current = couriersData
+      }
     } catch (err) {
       console.error('[Dashboard] Error cargando datos:', err)
     } finally {

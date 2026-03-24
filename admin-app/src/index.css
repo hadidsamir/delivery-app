@@ -2,6 +2,11 @@
 
 @variant dark (&:where(.dark, .dark *));
 
+/* Tailwind v4: forzar inclusión de clases dinámicas de estado de pedidos.
+   Sin esto, las clases usadas en objetos JS (STATUS_DOT, STATUS_BADGE) pueden
+   ser purgadas del CSS de producción, causando colores incorrectos en los badges. */
+@source inline("{bg,text}-{yellow,orange,green,red}-{100,300,400,500,600,700} dark:{bg,text}-{yellow,orange,green,red}-{900/40,300,400}");
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
