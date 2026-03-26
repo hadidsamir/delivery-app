@@ -7,6 +7,49 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { createClient } = require('@supabase/supabase-js');
+const admin = require('firebase-admin');
+
+// ── Firebase Admin (FCM) ───────────────────────────────────────────────────────
+// FIREBASE_SERVICE_ACCOUNT debe ser el JSON de la cuenta de servicio
+// codificado en base64 en las variables de entorno de Railway
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  try {
+    const serviceAccount = JSON.parse(
+      Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, 'base64').toString('utf8')
+    );
+    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+    console.log('[FCM] Firebase Admin inicializado correctamente');
+  } catch (err) {
+    console.error('[FCM] Error inicializando Firebase Admin:', err.message);
+  }
+} else {
+  console.warn('[FCM] FIREBASE_SERVICE_ACCOUNT no configurado — notificaciones push desactivadas');
+}
+
+async function sendFCMNotification(fcmToken, title, body, data = {}) {
+  if (!admin.apps.length) return;
+  try {
+    await admin.messaging().send({
+      token: fcmToken,
+      notification: { title, body },
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'pedidos',
+          sound: 'default',
+          priority: 'max',
+          vibrateTimingsMillis: [0, 300, 200, 300],
+        },
+      },
+      data: Object.fromEntries(
+        Object.entries(data).map(([k, v]) => [k, String(v)])
+      ),
+    });
+    console.log('[FCM] Notificación enviada a:', fcmToken.slice(0, 20) + '...');
+  } catch (err) {
+    console.error('[FCM] Error enviando notificación:', err.message);
+  }
+}
 
 // ── Supabase ───────────────────────────────────────────────────────────────────
 const supabase = createClient(
@@ -278,8 +321,50 @@ app.put('/api/order/:id/status', async (req, res) => {
   return res.json({ order: data });
 });
 
+// ── Listener Supabase Realtime → notificación FCM al mensajero ────────────────
+// El backend escucha INSERT en orders y envía FCM directo al dispositivo.
+// Esto funciona aunque la app del mensajero esté cerrada o la pantalla apagada.
+function startOrdersListener() {
+  supabase
+    .channel('backend-new-orders')
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'orders' },
+      async (payload) => {
+        const order = payload.new;
+        if (!order?.courier_id) return;
+
+        try {
+          const { data: courier } = await supabase
+            .from('couriers')
+            .select('push_token, name')
+            .eq('id', order.courier_id)
+            .single();
+
+          if (!courier?.push_token) {
+            console.warn('[FCM] Mensajero sin push_token:', order.courier_id);
+            return;
+          }
+
+          await sendFCMNotification(
+            courier.push_token,
+            '🛵 Nuevo pedido asignado',
+            `${order.client_name}\n📍 ${order.delivery_address}`,
+            { orderId: order.id }
+          );
+        } catch (err) {
+          console.error('[Orders listener] Error:', err.message);
+        }
+      }
+    )
+    .subscribe((status) => {
+      console.log('[Orders listener] Estado Realtime:', status);
+    });
+}
+
 // ── Arrancar servidor ──────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`[server] corriendo en http://localhost:${PORT}`);
+  startOrdersListener();
 });

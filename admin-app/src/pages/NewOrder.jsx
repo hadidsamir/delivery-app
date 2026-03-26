@@ -82,25 +82,8 @@ export default function NewOrder() {
       return alert('Error al crear pedido: ' + error.message)
     }
 
-    // Enviar push notification al mensajero
-    try {
-      const { data: courierData } = await supabase
-        .from('couriers').select('push_token, name').eq('id', form.courier_id).single()
-      if (courierData?.push_token) {
-        await fetch('https://exp.host/--/api/v2/push/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            to: courierData.push_token,
-            title: '1012Delivery — Nuevo pedido',
-            body: `Para ${form.client_name} en ${form.delivery_address}`,
-            sound: 'default',
-            priority: 'high',
-            channelId: 'pedidos',
-          }),
-        })
-      }
-    } catch (e) { console.warn('Push notification error:', e) }
+    // La notificación push FCM la envía el backend automáticamente
+    // vía Supabase Realtime al detectar el INSERT del pedido
 
     submittingRef.current = false
     setLoading(false)

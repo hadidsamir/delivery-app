@@ -7,15 +7,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Notifications from 'expo-notifications'
 import { supabase } from '../lib/supabase'
 
-const EXPO_PROJECT_ID = '3587b3f8-be0c-496c-9a58-ec0bf281776b'
-
-// Obtiene y guarda el push token del mensajero en Supabase
+// Obtiene y guarda el token FCM directo en Supabase.
+// Usamos getDevicePushTokenAsync() porque la app se construye localmente
+// con Gradle (no EAS), por lo que necesitamos el token FCM nativo.
 async function registerPushToken(courierId) {
   try {
     const { status } = await Notifications.requestPermissionsAsync()
     if (status !== 'granted') return
 
-    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: EXPO_PROJECT_ID })
+    const tokenData = await Notifications.getDevicePushTokenAsync()
     const token = tokenData?.data
     if (!token) return
 
@@ -24,9 +24,9 @@ async function registerPushToken(courierId) {
       .update({ push_token: token })
       .eq('id', courierId)
 
-    console.log('[Push] Token registrado:', token)
+    console.log('[Push] Token FCM registrado:', token.slice(0, 20) + '...')
   } catch (err) {
-    console.warn('[Push] Error registrando token:', err.message)
+    console.warn('[Push] Error registrando token FCM:', err.message)
   }
 }
 

@@ -41,9 +41,7 @@ export default function OrdersScreen({ navigation }) {
       try {
         const { status } = await Notifications.getPermissionsAsync()
         if (status !== 'granted') return
-        const tokenData = await Notifications.getExpoPushTokenAsync({
-          projectId: '3587b3f8-be0c-496c-9a58-ec0bf281776b',
-        })
+        const tokenData = await Notifications.getDevicePushTokenAsync()
         const token = tokenData?.data
         if (!token) return
         await supabase.from('couriers').update({ push_token: token }).eq('id', courierId)
