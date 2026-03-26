@@ -4,7 +4,31 @@ import {
   ActivityIndicator, KeyboardAvoidingView, Platform, Alert, Image,
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import * as Notifications from 'expo-notifications'
 import { supabase } from '../lib/supabase'
+
+const EXPO_PROJECT_ID = '3587b3f8-be0c-496c-9a58-ec0bf281776b'
+
+// Obtiene y guarda el push token del mensajero en Supabase
+async function registerPushToken(courierId) {
+  try {
+    const { status } = await Notifications.requestPermissionsAsync()
+    if (status !== 'granted') return
+
+    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: EXPO_PROJECT_ID })
+    const token = tokenData?.data
+    if (!token) return
+
+    await supabase
+      .from('couriers')
+      .update({ push_token: token })
+      .eq('id', courierId)
+
+    console.log('[Push] Token registrado:', token)
+  } catch (err) {
+    console.warn('[Push] Error registrando token:', err.message)
+  }
+}
 
 export default function LoginScreen({ navigation }) {
   const [phone, setPhone] = useState('')
@@ -34,6 +58,9 @@ export default function LoginScreen({ navigation }) {
         Alert.alert('Error', 'Mensajero no encontrado. Verifica tu numero.')
         return
       }
+
+      // Registrar push token en Supabase (en paralelo, no bloquea el login)
+      registerPushToken(data.id)
 
       await AsyncStorage.setItem('courier', JSON.stringify(data))
       navigation.replace('Orders')

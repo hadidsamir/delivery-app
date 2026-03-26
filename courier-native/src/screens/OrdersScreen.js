@@ -37,6 +37,19 @@ export default function OrdersScreen({ navigation }) {
     let channel   = null
     let courierData = null
 
+    async function refreshPushToken(courierId) {
+      try {
+        const { status } = await Notifications.getPermissionsAsync()
+        if (status !== 'granted') return
+        const tokenData = await Notifications.getExpoPushTokenAsync({
+          projectId: '3587b3f8-be0c-496c-9a58-ec0bf281776b',
+        })
+        const token = tokenData?.data
+        if (!token) return
+        await supabase.from('couriers').update({ push_token: token }).eq('id', courierId)
+      } catch {}
+    }
+
     async function init() {
       const stored = await AsyncStorage.getItem('courier')
       if (!stored) { navigation.replace('Login'); return }
@@ -47,6 +60,8 @@ export default function OrdersScreen({ navigation }) {
       checkBatteryOptimization()
       startAppKeepalive()
       subscribeRealtime(courierData.id)
+      // Refrescar push token en silencio para garantizar que siempre sea válido
+      refreshPushToken(courierData.id)
     }
 
     async function subscribeRealtime(courierId) {
