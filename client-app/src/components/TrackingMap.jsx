@@ -74,6 +74,7 @@ function TrackingMap({ courierLocation, deliveryAddress, deliveryLat, deliveryLn
 
   const mapRef = useRef(null)
   const boundsSetRef = useRef(false)
+  const userZoomedRef = useRef(false)
   const [destinationCoords, setDestinationCoords] = useState(null)
 
   // Usar coordenadas de BD primero (más rápido), geocodificar solo como fallback
@@ -103,6 +104,11 @@ function TrackingMap({ courierLocation, deliveryAddress, deliveryLat, deliveryLn
   useEffect(() => {
     if (!courierLocation || !mapRef.current) return
     if (!boundsSetRef.current) return
+    // Si el usuario hizo zoom manualmente, solo pan (sin cambiar zoom)
+    if (userZoomedRef.current) {
+      mapRef.current.panTo(courierLocation)
+      return
+    }
     if (destinationCoords) {
       // Recalcular bounds para mantener ambos visibles
       const bounds = new window.google.maps.LatLngBounds()
@@ -144,7 +150,15 @@ function TrackingMap({ courierLocation, deliveryAddress, deliveryLat, deliveryLn
           mapContainerStyle={{ width: '100%', height: '100%' }}
           center={center}
           zoom={courierLocation ? 15 : 13}
-          onLoad={map => { mapRef.current = map }}
+          onLoad={map => {
+            mapRef.current = map
+            // Detectar cuando el usuario hace zoom manualmente
+            map.addListener('zoom_changed', () => {
+              if (boundsSetRef.current) {
+                userZoomedRef.current = true
+              }
+            })
+          }}
           options={{
             styles: mapStyles,
             disableDefaultUI: true,
