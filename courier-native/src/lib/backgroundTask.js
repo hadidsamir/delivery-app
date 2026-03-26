@@ -78,30 +78,16 @@ async function sendLocation(courier_id, order_id, latitude, longitude) {
   }
 }
 
-// Lock de módulo: evita que múltiples disparos de la tarea (por location updates rápidos)
-// corran en paralelo y lean AsyncStorage antes de que el anterior haya escrito.
+// Lock de módulo: evita que múltiples disparos corran en paralelo
 let _keepaliveTaskRunning = false
 
-// Tarea keepalive: consulta Supabase y notifica pedidos nuevos
-TaskManager.defineTask(KEEPALIVE_TASK, async ({ error }) => {
-  if (error) { console.error('[Keepalive] Error de tarea:', error.message); return }
-  if (_keepaliveTaskRunning) return  // evitar ejecuciones concurrentes
-  _keepaliveTaskRunning = true
+// ─── Lógica central de notificación (usada por la tarea Y por la pantalla) ───
+// Se exporta para que OrdersScreen también la pueda llamar al abrir la app,
+// garantizando que aunque el keepalive haya sido matado por Android,
+// el mensajero recibe la notificación en el momento en que abre la app.
+export async function checkAndNotifyOrders(courierId) {
+  if (!courierId) return
   try {
-    const stored = await AsyncStorage.getItem('courier')
-    if (!stored) return
-
-    let courierId
-    try {
-      const parsed = JSON.parse(stored)
-      courierId = parsed?.id
-    } catch {
-      console.warn('[Keepalive] Datos de courier corruptos en AsyncStorage')
-      return
-    }
-    if (!courierId) return
-
-    // Consultar pedidos pendientes asignados a este mensajero
     const { data: orders, error: dbError } = await supabase
       .from('orders')
       .select('id, client_name, delivery_address, status, created_at')
@@ -110,27 +96,19 @@ TaskManager.defineTask(KEEPALIVE_TASK, async ({ error }) => {
 
     if (dbError || !orders?.length) return
 
-    // IDs ya notificados (AsyncStorage persiste entre ciclos y entre procesos)
+    // IDs ya notificados — persiste entre ciclos y entre procesos
     const notifiedStr = await AsyncStorage.getItem('keepaliveNotified') || '[]'
     const notified = new Set(JSON.parse(notifiedStr))
 
-    const now = Date.now()
-    const newOrders = orders.filter(o => {
-      if (notified.has(o.id)) return false
-      // Solo notificar pedidos con más de 15s de antigüedad.
-      // Esto da tiempo al canal Realtime para notificar primero (evita duplicados).
-      const ageMs = now - new Date(o.created_at).getTime()
-      return ageMs > 15000
-    })
+    // Filtrar solo los que NO han sido notificados aún
+    // (sin filtro de 15s — el deduplication por AsyncStorage es suficiente)
+    const newOrders = orders.filter(o => !notified.has(o.id))
     if (!newOrders.length) return
 
-    // Marcar como notificado ANTES de enviar para evitar duplicados si el envío falla
-    for (const order of newOrders) {
-      notified.add(order.id)
-    }
+    // Marcar ANTES de enviar para evitar duplicados en llamadas concurrentes
+    for (const order of newOrders) notified.add(order.id)
     await AsyncStorage.setItem('keepaliveNotified', JSON.stringify([...notified].slice(-50)))
 
-    // Enviar notificaciones
     for (const order of newOrders) {
       await Notifications.scheduleNotificationAsync({
         identifier: 'order-' + order.id,
@@ -145,8 +123,23 @@ TaskManager.defineTask(KEEPALIVE_TASK, async ({ error }) => {
         trigger: null,
       }).catch(() => {})
     }
+    console.log('[Notif] Pedidos notificados:', newOrders.length)
+  } catch (err) {
+    console.warn('[checkAndNotifyOrders] Error:', err.message)
+  }
+}
 
-    console.log('[Keepalive] Nuevos pedidos notificados:', newOrders.length)
+// Tarea keepalive: consulta Supabase y notifica pedidos nuevos en background
+TaskManager.defineTask(KEEPALIVE_TASK, async ({ error }) => {
+  if (error) { console.error('[Keepalive] Error de tarea:', error.message); return }
+  if (_keepaliveTaskRunning) return
+  _keepaliveTaskRunning = true
+  try {
+    const stored = await AsyncStorage.getItem('courier')
+    if (!stored) return
+    let courierId
+    try { courierId = JSON.parse(stored)?.id } catch { return }
+    await checkAndNotifyOrders(courierId)
   } catch (err) {
     console.warn('[Keepalive] Error:', err.message)
   } finally {

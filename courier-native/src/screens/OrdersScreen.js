@@ -9,7 +9,7 @@ import * as Location from 'expo-location'
 import * as Notifications from 'expo-notifications'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '../lib/supabase'
-import { startAppKeepalive, stopAppKeepalive } from '../lib/backgroundTask'
+import { startAppKeepalive, stopAppKeepalive, checkAndNotifyOrders } from '../lib/backgroundTask'
 
 // Configurar cómo se muestran las notificaciones cuando la app está abierta
 Notifications.setNotificationHandler({
@@ -55,12 +55,15 @@ export default function OrdersScreen({ navigation }) {
       if (!stored) { navigation.replace('Login'); return }
       courierData = JSON.parse(stored)
       setCourier(courierData)
+      await setupNotifications()
       fetchOrders(courierData.id)
-      setupNotifications()
+      // Verificar pedidos pendientes sin notificar AL ABRIR la app
+      // Esto garantiza que aunque el keepalive haya sido matado por Android,
+      // el mensajero recibe la notificación en cuanto abre la app
+      checkAndNotifyOrders(courierData.id)
       checkBatteryOptimization()
       startAppKeepalive()
       subscribeRealtime(courierData.id)
-      // Refrescar push token en silencio para garantizar que siempre sea válido
       refreshPushToken(courierData.id)
     }
 
@@ -95,7 +98,9 @@ export default function OrdersScreen({ navigation }) {
     const appStateSub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active' && courierData?.id) {
         fetchOrders(courierData.id)
-        subscribeRealtime(courierData.id) // reconectar canal por si se cayó
+        subscribeRealtime(courierData.id)
+        // También verificar pedidos sin notificar al volver al primer plano
+        checkAndNotifyOrders(courierData.id)
       }
     })
 
