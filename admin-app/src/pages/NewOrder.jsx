@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import AddressAutocomplete from '../components/AddressAutocomplete'
@@ -11,6 +11,7 @@ export default function NewOrder() {
   const { dark, toggleTheme } = useTheme()
   const [couriers, setCouriers] = useState([])
   const [loading, setLoading] = useState(false)
+  const submittingRef = useRef(false)
   const [form, setForm] = useState({
     client_name: '',
     client_phone: '',
@@ -47,6 +48,7 @@ export default function NewOrder() {
 
   async function handleSubmit(e) {
     e.preventDefault()
+    // Validaciones antes del guard para no bloquear futuros envíos si hay error de input
     if (!form.client_name.trim())      return alert('Ingresa el nombre del cliente')
     if (!form.client_phone.trim())     return alert('Ingresa el teléfono del cliente')
     if (!form.delivery_address.trim()) return alert('Ingresa la dirección de entrega')
@@ -55,6 +57,10 @@ export default function NewOrder() {
     if (!validItems.length)            return alert('Agrega al menos un ítem')
     const badQty = validItems.find(i => !Number(i.qty) || Number(i.qty) < 1)
     if (badQty)                        return alert('La cantidad de cada artículo debe ser mayor a 0')
+
+    // Guard sincrónico: evita doble submit si el usuario presiona rápido antes del re-render
+    if (submittingRef.current) return
+    submittingRef.current = true
 
     setLoading(true)
     const { error } = await supabase.from('orders').insert({
@@ -70,7 +76,11 @@ export default function NewOrder() {
       notes: form.notes.trim(),
     })
 
-    if (error) { setLoading(false); return alert('Error al crear pedido: ' + error.message) }
+    if (error) {
+      submittingRef.current = false
+      setLoading(false)
+      return alert('Error al crear pedido: ' + error.message)
+    }
 
     // Enviar push notification al mensajero
     try {
@@ -92,6 +102,7 @@ export default function NewOrder() {
       }
     } catch (e) { console.warn('Push notification error:', e) }
 
+    submittingRef.current = false
     setLoading(false)
     navigate('/dashboard')
   }

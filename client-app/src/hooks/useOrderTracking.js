@@ -88,8 +88,11 @@ export function useOrderTracking(token) {
           setState(s => ({ ...s, courierLocation: { lat: latitude, lng: longitude }, lastLocationTime: Date.now() }))
         })
 
-        socket.on('order:delivered', () => {
-          setState(s => ({ ...s, status: 'delivered' }))
+        socket.on('status:update', ({ status }) => {
+          console.log('[Socket] Estado actualizado:', status)
+          if (status === 'entregado') {
+            setState(s => ({ ...s, status: 'delivered' }))
+          }
         })
       } catch (err) {
         if (cancelled) return

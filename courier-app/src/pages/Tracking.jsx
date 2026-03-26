@@ -10,6 +10,7 @@ export default function Tracking() {
   const navigate = useNavigate()
   const watchIdRef = useRef(null)
   const wakeLockRef = useRef(null)
+  const wakeLockVisibilityRef = useRef(null)
   const courierRef = useRef(null)
 
   const [courier, setCourier] = useState(null)
@@ -88,9 +89,9 @@ export default function Tracking() {
         wakeLockRef.current = null
       }
       // Limpiar listener de visibilidad registrado en requestWakeLock
-      if (wakeLockRef._visibilityHandler) {
-        document.removeEventListener('visibilitychange', wakeLockRef._visibilityHandler)
-        wakeLockRef._visibilityHandler = null
+      if (wakeLockVisibilityRef.current) {
+        document.removeEventListener('visibilitychange', wakeLockVisibilityRef.current)
+        wakeLockVisibilityRef.current = null
       }
     }
   }, [])
@@ -126,9 +127,12 @@ export default function Tracking() {
           } catch {}
         }
       }
+      // Limpiar handler previo si requestWakeLock se llamó varias veces
+      if (wakeLockVisibilityRef.current) {
+        document.removeEventListener('visibilitychange', wakeLockVisibilityRef.current)
+      }
       document.addEventListener('visibilitychange', onVisibility)
-      // Guardar referencia para limpiar en el cleanup del useEffect
-      wakeLockRef._visibilityHandler = onVisibility
+      wakeLockVisibilityRef.current = onVisibility
     } catch (err) {
       console.warn('[WakeLock] No disponible:', err)
     }

@@ -133,6 +133,7 @@ TaskManager.defineTask(KEEPALIVE_TASK, async ({ error }) => {
     // Enviar notificaciones
     for (const order of newOrders) {
       await Notifications.scheduleNotificationAsync({
+        identifier: 'order-' + order.id,
         content: {
           title: '🛵 Nuevo pedido asignado',
           body: `${order.client_name}\n📍 ${order.delivery_address}`,

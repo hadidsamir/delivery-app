@@ -49,9 +49,9 @@ export default function OrdersScreen({ navigation }) {
       subscribeRealtime(courierData.id)
     }
 
-    function subscribeRealtime(courierId) {
-      // Eliminar canal previo si existe
-      if (channel) supabase.removeChannel(channel)
+    async function subscribeRealtime(courierId) {
+      // Eliminar canal previo si existe y esperar a que se limpie
+      if (channel) await supabase.removeChannel(channel).catch(() => {})
 
       channel = supabase
         .channel('native-orders-' + courierId + '-' + Date.now())
@@ -146,6 +146,7 @@ export default function OrdersScreen({ navigation }) {
     } catch {}
     try {
       await Notifications.scheduleNotificationAsync({
+        identifier: 'order-' + order.id,
         content: {
           title: '🛵 Nuevo pedido asignado',
           body: `${order.client_name}\n📍 ${order.delivery_address}`,
