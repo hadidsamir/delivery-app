@@ -1,4 +1,6 @@
 function CourierCard({ courier, status }) {
+  if (!courier) return null
+
   const initial = courier.name?.charAt(0).toUpperCase() || '?'
 
   return (
