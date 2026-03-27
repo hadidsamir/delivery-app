@@ -43,7 +43,7 @@ const DELIVERY_ICON = {
 // ── Pantalla de confirmación ──────────────────────────────────────────────────
 function ConfirmationView({ orderId }) {
   return (
-    <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center px-4 py-10">
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center px-4 py-10">
       <div className="bg-gray-900 rounded-2xl p-8 max-w-sm w-full text-center shadow-xl border border-gray-800">
         {/* Check animado */}
         <div className="w-20 h-20 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-5">
@@ -188,7 +188,7 @@ export default function RequestPage() {
 
   // ── Formulario ──────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gray-950 px-4 py-8">
+    <div className="min-h-screen bg-black px-4 py-8">
       <div className="max-w-lg mx-auto">
 
         {/* Header */}
