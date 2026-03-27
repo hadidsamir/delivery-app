@@ -95,7 +95,7 @@ export async function checkAvailableOrders(courierId) {
           title: '🔔 Nuevo Servicio Disponible' + amount,
           body: `📦 ${order.pickup_address || 'Recogida'}\n📍 ${order.delivery_address}`,
           sound: 'nuevo_servicio',
-          channelId: 'nuevo_servicio',
+          channelId: 'nuevo_servicio_v2',
           priority: Notifications.AndroidNotificationPriority.MAX,
           data: { availableOrderId: order.id },
         },

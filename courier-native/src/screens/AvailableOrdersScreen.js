@@ -4,6 +4,7 @@ import {
   ActivityIndicator, RefreshControl, Alert, StatusBar,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { useFocusEffect } from '@react-navigation/native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '../lib/supabase'
 
@@ -15,6 +16,14 @@ export default function AvailableOrdersScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false)
   const [claiming, setClaiming]   = useState(null) // id del pedido que se está tomando
   const [courier, setCourier]     = useState(null)
+
+  // Refrescar al enfocar el tab (cubre casos donde Realtime pierde conexión
+  // o el screen no estaba montado cuando llegó el pedido)
+  useFocusEffect(
+    useCallback(() => {
+      fetchOrders()
+    }, [])
+  )
 
   useEffect(() => {
     let channel = null

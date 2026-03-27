@@ -129,8 +129,8 @@ export default function OrdersScreen({ navigation }) {
           lightColor: '#F97316',
         })
 
-        // Canal para nuevos servicios de clientes (con sonido personalizado)
-        await Notifications.setNotificationChannelAsync('nuevo_servicio', {
+        // Canal para nuevos servicios de clientes (v2 para forzar recreación con sonido)
+        await Notifications.setNotificationChannelAsync('nuevo_servicio_v2', {
           name: 'Nuevos servicios disponibles',
           importance: Notifications.AndroidImportance.MAX,
           sound: 'nuevo_servicio',

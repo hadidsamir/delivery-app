@@ -42,6 +42,7 @@ function MainTabs({ availableCount }) {
   const insets = useSafeAreaInsets()
   return (
     <Tab.Navigator
+      lazy={false}
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
