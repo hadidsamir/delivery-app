@@ -63,7 +63,7 @@ export default function LoginScreen({ navigation }) {
       registerPushToken(data.id)
 
       await AsyncStorage.setItem('courier', JSON.stringify(data))
-      navigation.replace('Orders')
+      navigation.replace('MainTabs')
     } catch (err) {
       Alert.alert('Error', 'Error de conexion. Intenta de nuevo.')
     } finally {

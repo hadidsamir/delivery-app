@@ -3,10 +3,12 @@
 import './src/lib/backgroundTask'
 
 import React, { useEffect, useState } from 'react'
-import { View, ActivityIndicator } from 'react-native'
+import { View, ActivityIndicator, Text } from 'react-native'
 import { NavigationContainer } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { StatusBar } from 'expo-status-bar'
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Location from 'expo-location'
 import * as Notifications from 'expo-notifications'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -15,73 +17,100 @@ import { BACKGROUND_LOCATION_TASK, startAppKeepalive } from './src/lib/backgroun
 
 // ─── Listener de acciones de notificación a nivel de módulo ──────────────────
 // Se registra ANTES de que React monte cualquier pantalla.
-// Funciona incluso si la app estaba completamente cerrada cuando el usuario
-// toca "Aceptar" o "Rechazar" en la notificación de nuevo pedido.
+// - ACEPTAR: abre la app (opensAppToForeground: true lo hace automáticamente)
+//            + descarta la notificación del panel
+// - RECHAZAR: solo descarta la notificación, el pedido sigue pendiente en la app
 Notifications.addNotificationResponseReceivedListener(async (response) => {
   const action  = response.actionIdentifier
   const notifId = response.notification.request.identifier
-  const orderId = response.notification.request.content.data?.orderId
-  if (!orderId) return
 
-  try {
-    if (action === 'aceptar') {
-      // Descartar la notificación del sistema
-      await Notifications.dismissAllNotificationsAsync().catch(() => {})
-
-      // Recuperar courierId para restaurar el mensajero si fue rechazado antes
-      let courierId = null
-      try {
-        const raw = await AsyncStorage.getItem('courier')
-        if (raw) courierId = JSON.parse(raw)?.id
-      } catch {}
-
-      const update = { status: 'en_camino' }
-      if (courierId) update.courier_id = courierId
-
-      const { error: acceptErr } = await supabase.from('orders')
-        .update(update)
-        .eq('id', orderId)
-      if (acceptErr) throw acceptErr
-      console.log('[App] Pedido aceptado:', orderId)
-
-    } else if (action === 'rechazar') {
-      // CRÍTICO: en Android las acciones sin opensAppToForeground nunca
-      // descartan la notificación automáticamente — hay que hacerlo primero
-      // e incondicionalmente antes de cualquier operación async.
-      await Notifications.dismissAllNotificationsAsync().catch(() => {})
-      await Notifications.dismissNotificationAsync(notifId).catch(() => {})
-
-      const { error: rejectErr } = await supabase.from('orders')
-        .update({ status: 'pendiente', courier_id: null })
-        .eq('id', orderId)
-      if (rejectErr) throw rejectErr
-
-      // Limpiar keepaliveNotified para que si se reasigna llegue nueva notificación
-      try {
-        const raw = await AsyncStorage.getItem('keepaliveNotified') || '[]'
-        const filtered = JSON.parse(raw).filter(id => id !== orderId)
-        await AsyncStorage.setItem('keepaliveNotified', JSON.stringify(filtered))
-      } catch {}
-
-      console.log('[App] Pedido rechazado y notificación descartada:', orderId)
-    }
-  } catch (err) {
-    console.error('[App] Error procesando acción de notificación:', err.message)
+  if (action === 'aceptar' || action === 'rechazar') {
+    await Notifications.dismissNotificationAsync(notifId).catch(() => {})
   }
 })
 
 import LoginScreen from './src/screens/LoginScreen'
 import OrdersScreen from './src/screens/OrdersScreen'
 import TrackingScreen from './src/screens/TrackingScreen'
+import AvailableOrdersScreen from './src/screens/AvailableOrdersScreen'
 
 const Stack = createNativeStackNavigator()
+const Tab   = createBottomTabNavigator()
+
+// ─── Tab Navigator principal ─────────────────────────────────────────────────
+function MainTabs({ availableCount }) {
+  const insets = useSafeAreaInsets()
+  return (
+    <Tab.Navigator
+      screenOptions={{
+        headerShown: false,
+        tabBarStyle: {
+          backgroundColor: '#111827',
+          borderTopColor: '#1F2937',
+          borderTopWidth: 1,
+          height: 60 + insets.bottom,
+          paddingBottom: insets.bottom + 4,
+        },
+        tabBarActiveTintColor:   '#F97316',
+        tabBarInactiveTintColor: '#6B7280',
+        tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
+      }}
+    >
+      <Tab.Screen
+        name="MisPedidos"
+        component={OrdersScreen}
+        options={{
+          tabBarLabel: 'Mis Pedidos',
+          tabBarIcon: ({ color, size }) => (
+            <Text style={{ fontSize: size - 2, color }}>🛵</Text>
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Disponibles"
+        component={AvailableOrdersScreen}
+        options={{
+          tabBarLabel: 'Disponibles',
+          tabBarIcon: ({ color, size }) => (
+            <Text style={{ fontSize: size - 2, color }}>🔔</Text>
+          ),
+          tabBarBadge: availableCount > 0 ? availableCount : undefined,
+          tabBarBadgeStyle: { backgroundColor: '#00E8E1', color: '#000', fontSize: 11, fontWeight: '800' },
+        }}
+      />
+    </Tab.Navigator>
+  )
+}
 
 export default function App() {
-  const [initialRoute, setInitialRoute] = useState(null) // null = cargando
+  const [initialRoute, setInitialRoute]   = useState(null) // null = cargando
+  const [availableCount, setAvailableCount] = useState(0)
 
   useEffect(() => {
     bootstrap()
+    // Suscripción para el badge de pedidos disponibles
+    const channel = supabase
+      .channel('available-badge')
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'orders',
+        filter: 'source=eq.cliente',
+      }, () => loadAvailableCount())
+      .subscribe()
+    loadAvailableCount()
+    return () => supabase.removeChannel(channel)
   }, [])
+
+  async function loadAvailableCount() {
+    try {
+      const { count } = await supabase
+        .from('orders')
+        .select('id', { count: 'exact', head: true })
+        .is('courier_id', null)
+        .eq('status', 'pendiente')
+        .eq('source', 'cliente')
+      setAvailableCount(count || 0)
+    } catch {}
+  }
 
   async function bootstrap() {
     try {
@@ -101,7 +130,7 @@ export default function App() {
       // 2. Determinar pantalla inicial
       const courier = await AsyncStorage.getItem('courier')
       if (courier) {
-        setInitialRoute('Orders')
+        setInitialRoute('MainTabs')
         startAppKeepalive() // inicia el servicio de fondo para recibir notificaciones
       } else {
         setInitialRoute('Login')
@@ -122,6 +151,7 @@ export default function App() {
   }
 
   return (
+    <SafeAreaProvider>
     <NavigationContainer>
       <StatusBar style="light" />
       <Stack.Navigator
@@ -129,9 +159,12 @@ export default function App() {
         screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
       >
         <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="Orders" component={OrdersScreen} />
+        <Stack.Screen name="MainTabs">
+          {() => <MainTabs availableCount={availableCount} />}
+        </Stack.Screen>
         <Stack.Screen name="Tracking" component={TrackingScreen} />
       </Stack.Navigator>
     </NavigationContainer>
+    </SafeAreaProvider>
   )
 }

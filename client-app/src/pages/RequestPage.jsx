@@ -139,6 +139,7 @@ export default function RequestPage() {
 
     if (!clientName.trim()) return setError('Ingresa tu nombre')
     if (!clientPhone.trim()) return setError('Ingresa tu número de contacto')
+    if (clientPhone.trim().length < 7) return setError('Ingresa un número de contacto válido')
     if (!pickupAddress.trim()) return setError('Ingresa la dirección de recogida')
     if (!deliveryAddress.trim()) return setError('Ingresa la dirección de entrega')
     if (baseAmount !== '' && (isNaN(Number(baseAmount)) || Number(baseAmount) < 0)) {

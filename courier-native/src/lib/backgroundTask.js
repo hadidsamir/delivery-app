@@ -52,6 +52,62 @@ export async function stopAppKeepalive() {
 // ─── GPS Background Task ──────────────────────────────────────────────────────
 const BACKEND_URL = 'https://delivery-app-production-9c98.up.railway.app'
 
+// Envía la ubicación idle del mensajero (sin entrega activa)
+async function sendIdleLocation(courierId, latitude, longitude) {
+  try {
+    await fetch(`${BACKEND_URL}/api/courier/idle-location`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ courier_id: courierId, latitude, longitude }),
+    })
+  } catch {}
+}
+
+// Verifica pedidos de clientes sin asignar y notifica con canal 'nuevo_servicio'
+export async function checkAvailableOrders(courierId) {
+  if (!courierId) return
+  try {
+    const { data: available, error } = await supabase
+      .from('orders')
+      .select('id, pickup_address, delivery_address, base_amount, payment_method, created_at')
+      .is('courier_id', null)
+      .eq('status', 'pendiente')
+      .eq('source', 'cliente')
+
+    if (error || !available?.length) return
+
+    const notifiedStr = await AsyncStorage.getItem('availableNotified') || '[]'
+    const notified = new Set(JSON.parse(notifiedStr))
+
+    const newOrders = available.filter(o => !notified.has(o.id))
+    if (!newOrders.length) return
+
+    for (const order of newOrders) notified.add(order.id)
+    await AsyncStorage.setItem('availableNotified', JSON.stringify([...notified].slice(-50)))
+
+    for (const order of newOrders) {
+      const amount = order.base_amount
+        ? ` • $${Number(order.base_amount).toLocaleString('es-CO')}`
+        : ''
+      await Notifications.scheduleNotificationAsync({
+        identifier: 'available-' + order.id,
+        content: {
+          title: '🔔 Nuevo Servicio Disponible' + amount,
+          body: `📦 ${order.pickup_address || 'Recogida'}\n📍 ${order.delivery_address}`,
+          sound: 'nuevo_servicio',
+          channelId: 'nuevo_servicio',
+          priority: Notifications.AndroidNotificationPriority.MAX,
+          data: { availableOrderId: order.id },
+        },
+        trigger: null,
+      }).catch(() => {})
+    }
+    console.log('[Notif] Servicios disponibles notificados:', newOrders.length)
+  } catch (err) {
+    console.warn('[checkAvailableOrders] Error:', err.message)
+  }
+}
+
 async function sendLocation(courier_id, order_id, latitude, longitude) {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -129,8 +185,8 @@ export async function checkAndNotifyOrders(courierId) {
   }
 }
 
-// Tarea keepalive: consulta Supabase y notifica pedidos nuevos en background
-TaskManager.defineTask(KEEPALIVE_TASK, async ({ error }) => {
+// Tarea keepalive: consulta Supabase, notifica pedidos asignados y servicios disponibles
+TaskManager.defineTask(KEEPALIVE_TASK, async ({ data, error }) => {
   if (error) { console.error('[Keepalive] Error de tarea:', error.message); return }
   if (_keepaliveTaskRunning) return
   _keepaliveTaskRunning = true
@@ -139,7 +195,19 @@ TaskManager.defineTask(KEEPALIVE_TASK, async ({ error }) => {
     if (!stored) return
     let courierId
     try { courierId = JSON.parse(stored)?.id } catch { return }
+
+    // Notificar pedidos asignados a este mensajero
     await checkAndNotifyOrders(courierId)
+
+    // Notificar nuevos servicios disponibles de clientes
+    await checkAvailableOrders(courierId)
+
+    // Enviar ubicación idle (solo si no hay entrega activa)
+    const activeDelivery = await AsyncStorage.getItem('activeDelivery')
+    if (!activeDelivery && data?.locations?.length) {
+      const { latitude, longitude } = data.locations[0].coords
+      sendIdleLocation(courierId, latitude, longitude).catch(() => {})
+    }
   } catch (err) {
     console.warn('[Keepalive] Error:', err.message)
   } finally {

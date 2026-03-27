@@ -34,7 +34,7 @@
       ]
     },
     "plugins": [
-      "expo-notifications",
+      ["expo-notifications", { "sounds": ["./assets/sounds/nuevo_servicio.mp3"] }],
       [
         "expo-location",
         {

@@ -15,7 +15,7 @@ export default function TrackingScreen({ route, navigation }) {
 
   if (!order || !courier) {
     // Params inválidos → volver a la pantalla anterior de forma segura
-    navigation.replace('Orders')
+    navigation.replace('MainTabs')
     return null
   }
 
@@ -110,7 +110,7 @@ export default function TrackingScreen({ route, navigation }) {
       ])
 
       if (result.error) throw result.error
-      if (isMounted.current) navigation.replace('Orders')
+      if (isMounted.current) navigation.replace('MainTabs')
     } catch (err) {
       console.error('[markDelivered]', err.message)
       Alert.alert('Error', err.message || 'No se pudo marcar como entregado. Intenta de nuevo.')

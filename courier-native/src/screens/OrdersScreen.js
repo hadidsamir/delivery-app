@@ -25,6 +25,7 @@ export default function OrdersScreen({ navigation }) {
   const [orders, setOrders]       = useState([])
   const [loading, setLoading]     = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [accepting, setAccepting] = useState(null) // id del pedido que se está aceptando
   // Set de IDs de pedidos ya notificados — evita notificaciones duplicadas
   // Se limpia automáticamente al superar 100 entradas para evitar memory leak
   const notifiedOrders = React.useRef(new Set())
@@ -50,7 +51,7 @@ export default function OrdersScreen({ navigation }) {
 
     async function init() {
       const stored = await AsyncStorage.getItem('courier')
-      if (!stored) { navigation.replace('Login'); return }
+      if (!stored) { navigation.getParent()?.replace('Login'); return }
       courierData = JSON.parse(stored)
       setCourier(courierData)
       await setupNotifications()
@@ -73,9 +74,11 @@ export default function OrdersScreen({ navigation }) {
         .channel('native-orders-' + courierId + '-' + Date.now())
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
           async (payload) => {
+            // Solo refrescar la UI — la notificación la maneja EXCLUSIVAMENTE
+            // el keepalive (checkAndNotifyOrders) para evitar doble notificación
+            // entre el canal Realtime y el FCM silencioso del backend.
             if (payload.new.courier_id === courierId) {
               fetchOrders(courierId)
-              notifyNewOrder(payload.new)
             }
           })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' },
@@ -124,6 +127,16 @@ export default function OrdersScreen({ navigation }) {
           vibrationPattern: [0, 300, 200, 300],
           enableLights: true,
           lightColor: '#F97316',
+        })
+
+        // Canal para nuevos servicios de clientes (con sonido personalizado)
+        await Notifications.setNotificationChannelAsync('nuevo_servicio', {
+          name: 'Nuevos servicios disponibles',
+          importance: Notifications.AndroidImportance.MAX,
+          sound: 'nuevo_servicio',
+          vibrationPattern: [0, 500, 200, 500],
+          enableLights: true,
+          lightColor: '#00E8E1',
         })
       }
 
@@ -223,7 +236,8 @@ export default function OrdersScreen({ navigation }) {
   }
 
   async function acceptOrder(orderId) {
-    if (!courier?.id) return
+    if (!courier?.id || accepting) return
+    setAccepting(orderId)
     try {
       const { error } = await supabase.from('orders')
         .update({ status: 'en_camino', courier_id: courier.id })
@@ -234,6 +248,8 @@ export default function OrdersScreen({ navigation }) {
       fetchOrders(courier.id)
     } catch (err) {
       Alert.alert('Error', 'No se pudo aceptar el pedido: ' + err.message)
+    } finally {
+      setAccepting(null)
     }
   }
 
@@ -290,7 +306,7 @@ export default function OrdersScreen({ navigation }) {
       }
 
       // 3. Navegar a Tracking — el keepalive sigue corriendo en paralelo
-      navigation.navigate('Tracking', { order, courier })
+      navigation.getParent()?.navigate('Tracking', { order, courier })
 
     } catch (err) {
       Alert.alert('Error', 'No se pudo verificar el permiso de ubicación: ' + err.message)
@@ -305,7 +321,7 @@ export default function OrdersScreen({ navigation }) {
         onPress: async () => {
           await stopAppKeepalive()
           await AsyncStorage.removeItem('courier')
-          navigation.replace('Login')
+          navigation.getParent()?.replace('Login')
         },
       },
     ])
@@ -355,11 +371,24 @@ export default function OrdersScreen({ navigation }) {
 
         {isPendiente ? (
           <View style={styles.btnRow}>
-            <TouchableOpacity style={styles.rejectBtn} onPress={() => rejectOrder(item.id)} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={styles.rejectBtn}
+              onPress={() => rejectOrder(item.id)}
+              disabled={accepting === item.id}
+              activeOpacity={0.8}
+            >
               <Text style={styles.rejectText}>Rechazar</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.acceptBtn} onPress={() => acceptOrder(item.id)} activeOpacity={0.8}>
-              <Text style={styles.acceptText}>Aceptar</Text>
+            <TouchableOpacity
+              style={[styles.acceptBtn, accepting === item.id && { opacity: 0.6 }]}
+              onPress={() => acceptOrder(item.id)}
+              disabled={accepting === item.id}
+              activeOpacity={0.8}
+            >
+              {accepting === item.id
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <Text style={styles.acceptText}>Aceptar</Text>
+              }
             </TouchableOpacity>
           </View>
         ) : (

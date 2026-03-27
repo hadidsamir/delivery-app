@@ -29,23 +29,20 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
 async function sendFCMNotification(fcmToken, title, body, data = {}) {
   if (!admin.apps.length) return;
   try {
+    // Mensaje de datos silencioso (sin campo 'notification') para evitar la
+    // notificación doble: el OS no la muestra automáticamente y la app local
+    // (keepalive / realtime) crea la notificación con botones ACEPTAR/RECHAZAR.
     await admin.messaging().send({
       token: fcmToken,
-      notification: { title, body },
-      android: {
-        priority: 'high',
-        notification: {
-          channelId: 'pedidos',
-          sound: 'default',
-          priority: 'max',
-          vibrateTimingsMillis: [0, 300, 200, 300],
-        },
+      android: { priority: 'high' },
+      data: {
+        title,
+        body,
+        channelId: 'pedidos',
+        ...Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
       },
-      data: Object.fromEntries(
-        Object.entries(data).map(([k, v]) => [k, String(v)])
-      ),
     });
-    console.log('[FCM] Notificación enviada a:', fcmToken.slice(0, 20) + '...');
+    console.log('[FCM] Señal silenciosa enviada a:', fcmToken.slice(0, 20) + '...');
   } catch (err) {
     console.error('[FCM] Error enviando notificación:', err.message);
   }
@@ -63,19 +60,14 @@ async function sendFCMBroadcast(tokens, title, body, data = {}) {
   let enviados = 0;
   for (const chunk of chunks) {
     try {
+      // Mensaje de datos silencioso — evita doble notificación.
+      // Android NO muestra la notificación automáticamente.
+      // El keepalive (checkAvailableOrders) crea la notificación local
+      // con el canal 'nuevo_servicio' y el sonido personalizado.
       const response = await admin.messaging().sendEachForMulticast({
         tokens: chunk,
-        notification: { title, body },
-        android: {
-          priority: 'high',
-          notification: {
-            channelId: 'nuevo_servicio',
-            sound: 'nuevo_servicio',
-            priority: 'max',
-            vibrateTimingsMillis: [0, 500, 200, 500],
-          },
-        },
-        data: dataStr,
+        android: { priority: 'high' },
+        data: { ...dataStr, title, body },
       });
       enviados += response.successCount;
       console.log(`[FCM Broadcast] ${response.successCount}/${chunk.length} enviados`);
