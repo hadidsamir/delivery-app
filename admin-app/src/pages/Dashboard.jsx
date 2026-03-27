@@ -181,6 +181,9 @@ export default function Dashboard() {
   const enCamino    = orders.filter(o => o.status === 'en_camino').length
   const entregados  = orders.filter(o => o.status === 'entregado').length
 
+  // Solicitudes de clientes sin mensajero asignado
+  const pendingClientOrders = orders.filter(o => o.source === 'cliente' && !o.courier_id)
+
   async function copyLink(token) {
     if (!token) return
     const url = `${CLIENT_URL}/track/${encodeURIComponent(token)}`
@@ -336,6 +339,93 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* ── Solicitudes de clientes sin asignar ──────────────────────────── */}
+        {pendingClientOrders.length > 0 && (
+          <div className="mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
+              <h2 className="text-base font-bold text-gray-900 dark:text-white">
+                Solicitudes sin asignar
+              </h2>
+              <span className="bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 text-xs font-bold px-2 py-0.5 rounded-full">
+                {pendingClientOrders.length}
+              </span>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {pendingClientOrders.map(order => (
+                <div
+                  key={order.id}
+                  className="bg-white dark:bg-gray-900 rounded-2xl border border-cyan-200 dark:border-cyan-900/50 shadow-sm p-5 flex flex-col gap-3"
+                >
+                  {/* Encabezado */}
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-md">
+                      #{order.id.slice(0, 8)}
+                    </span>
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                      order.payment_method === 'efectivo'
+                        ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                        : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
+                    }`}>
+                      {order.payment_method === 'efectivo' ? '💵 Efectivo' : '📲 Transferencia'}
+                    </span>
+                  </div>
+
+                  {/* Direcciones */}
+                  <div className="space-y-2 text-sm">
+                    <div className="flex gap-2">
+                      <span className="w-5 h-5 rounded-full bg-orange-500/20 text-orange-400 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">R</span>
+                      <p className="text-gray-700 dark:text-gray-300 leading-tight line-clamp-2">{order.pickup_address || '—'}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <span className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">E</span>
+                      <p className="text-gray-700 dark:text-gray-300 leading-tight line-clamp-2">{order.delivery_address || '—'}</p>
+                    </div>
+                  </div>
+
+                  {/* Base y descripción */}
+                  <div className="flex items-center justify-between text-sm">
+                    {order.base_amount ? (
+                      <span className="font-bold text-gray-900 dark:text-white">
+                        Base: ${Number(order.base_amount).toLocaleString('es-CO')}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400 text-xs">Sin base definida</span>
+                    )}
+                    <span className="text-xs text-gray-400">
+                      {new Date(order.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+
+                  {order.description && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2 line-clamp-2">
+                      {order.description}
+                    </p>
+                  )}
+
+                  {/* Botones */}
+                  <div className="flex gap-2 mt-1">
+                    <button
+                      onClick={() => { setAssignOrder(order); setAssignCourierId('') }}
+                      className="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold py-2.5 rounded-xl transition-colors"
+                    >
+                      🛵 Asignar mensajero
+                    </button>
+                    <button
+                      onClick={() => { setTrackingOrder(order); setCopied(false) }}
+                      className="bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs font-medium px-3 py-2.5 rounded-xl transition-colors"
+                      title="Ver link de rastreo"
+                    >
+                      🔗
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ── Tabla de pedidos ─────────────────────────────────────────────── */}
         <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
 
@@ -395,8 +485,16 @@ export default function Dashboard() {
 
                       {/* Cliente */}
                       <td className="px-4 py-4">
-                        <p className="font-semibold text-gray-900 dark:text-white">{order.client_name}</p>
-                        <p className="text-gray-400 dark:text-gray-500 text-xs mt-0.5">{order.client_phone}</p>
+                        {order.source === 'cliente' ? (
+                          <span className="inline-flex items-center gap-1 bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 text-xs font-semibold px-2 py-1 rounded-full">
+                            🌐 Solicitud web
+                          </span>
+                        ) : (
+                          <>
+                            <p className="font-semibold text-gray-900 dark:text-white">{order.client_name}</p>
+                            <p className="text-gray-400 dark:text-gray-500 text-xs mt-0.5">{order.client_phone}</p>
+                          </>
+                        )}
                       </td>
 
                       {/* Dirección */}
@@ -476,7 +574,9 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <h3 className="font-bold text-gray-900 dark:text-white">Link de rastreo</h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{trackingOrder.client_name}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {trackingOrder.client_name || `Solicitud #${trackingOrder.id.slice(0, 8)}`}
+                  </p>
                 </div>
               </div>
               <button
@@ -549,7 +649,9 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <h3 className="font-bold text-gray-900 dark:text-white">Asignar mensajero</h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{assignOrder.client_name}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {assignOrder.client_name || `Solicitud #${assignOrder.id.slice(0, 8)}`}
+                  </p>
                 </div>
               </div>
               <button
