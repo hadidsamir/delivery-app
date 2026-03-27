@@ -81,6 +81,7 @@ export default function RequestPage() {
   const [pickupCoords,    setPickupCoords]    = useState(null)   // { lat, lng }
   const [deliveryAddress, setDeliveryAddress] = useState('')
   const [deliveryCoords,  setDeliveryCoords]  = useState(null)
+  const [clientName,      setClientName]      = useState('')
   const [baseAmount,      setBaseAmount]      = useState('')   // valor numérico real
   const [baseDisplay,     setBaseDisplay]     = useState('')   // valor formateado con puntos
   const [paymentMethod,   setPaymentMethod]   = useState('efectivo')
@@ -135,6 +136,7 @@ export default function RequestPage() {
     if (submittingRef.current) return
     setError('')
 
+    if (!clientName.trim()) return setError('Ingresa tu nombre')
     if (!pickupAddress.trim()) return setError('Ingresa la dirección de recogida')
     if (!deliveryAddress.trim()) return setError('Ingresa la dirección de entrega')
     if (baseAmount !== '' && (isNaN(Number(baseAmount)) || Number(baseAmount) < 0)) {
@@ -155,6 +157,7 @@ export default function RequestPage() {
           delivery_address: deliveryAddress.trim(),
           delivery_lat:     deliveryCoords?.lat ?? null,
           delivery_lng:     deliveryCoords?.lng ?? null,
+          client_name:      clientName.trim(),
           base_amount:      baseAmount !== '' ? Number(baseAmount) : null,
           payment_method:   paymentMethod,
           description:      description.trim() || null,
@@ -192,6 +195,19 @@ export default function RequestPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
+
+          {/* ── Nombre del solicitante ── */}
+          <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
+            <label className="block text-white font-semibold mb-3">¿Cuál es tu nombre?</label>
+            <input
+              type="text"
+              value={clientName}
+              onChange={e => setClientName(e.target.value)}
+              placeholder="Tu nombre completo..."
+              maxLength={80}
+              className="w-full bg-gray-800 text-white placeholder-gray-500 rounded-xl px-4 py-3 text-sm border border-gray-700 focus:outline-none focus:border-orange-500 transition-colors"
+            />
+          </div>
 
           {/* ── Mapa con ambos marcadores ── */}
           {isLoaded && (pickupCoords || deliveryCoords) && (

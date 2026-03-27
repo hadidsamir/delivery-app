@@ -360,9 +360,14 @@ export default function Dashboard() {
                 >
                   {/* Encabezado */}
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-md">
-                      #{order.id.slice(0, 8)}
-                    </span>
+                    <div>
+                      {order.client_name && (
+                        <p className="font-semibold text-gray-900 dark:text-white text-sm mb-0.5">{order.client_name}</p>
+                      )}
+                      <span className="font-mono text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-md">
+                        #{order.id.slice(0, 8)}
+                      </span>
+                    </div>
                     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
                       order.payment_method === 'efectivo'
                         ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
