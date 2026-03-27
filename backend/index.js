@@ -51,6 +51,41 @@ async function sendFCMNotification(fcmToken, title, body, data = {}) {
   }
 }
 
+// Envía notificación FCM a TODOS los mensajeros (nuevo servicio del cliente)
+async function sendFCMBroadcast(tokens, title, body, data = {}) {
+  if (!admin.apps.length || !tokens.length) return;
+  const dataStr = Object.fromEntries(
+    Object.entries(data).map(([k, v]) => [k, String(v)])
+  );
+  // FCM permite máximo 500 tokens por llamada
+  const chunks = [];
+  for (let i = 0; i < tokens.length; i += 500) chunks.push(tokens.slice(i, i + 500));
+  let enviados = 0;
+  for (const chunk of chunks) {
+    try {
+      const response = await admin.messaging().sendEachForMulticast({
+        tokens: chunk,
+        notification: { title, body },
+        android: {
+          priority: 'high',
+          notification: {
+            channelId: 'nuevo_servicio',
+            sound: 'nuevo_servicio',
+            priority: 'max',
+            vibrateTimingsMillis: [0, 500, 200, 500],
+          },
+        },
+        data: dataStr,
+      });
+      enviados += response.successCount;
+      console.log(`[FCM Broadcast] ${response.successCount}/${chunk.length} enviados`);
+    } catch (err) {
+      console.error('[FCM Broadcast] Error:', err.message);
+    }
+  }
+  console.log(`[FCM Broadcast] Total entregados: ${enviados}/${tokens.length}`);
+}
+
 // ── Supabase ───────────────────────────────────────────────────────────────────
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -82,6 +117,13 @@ const locationLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
   message: { error: 'Límite de actualizaciones GPS alcanzado.' },
+});
+
+// Pedidos públicos: máximo 10 req / hora por IP (anti-spam)
+const publicOrderLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  message: { error: 'Demasiadas solicitudes. Intenta más tarde.' },
 });
 
 const io = new Server(server, {
@@ -150,6 +192,12 @@ io.on('connection', (socket) => {
       console.error('[socket] Error en join:order:', err.message);
       socket.emit('error:auth', { message: 'Error interno' });
     }
+  });
+
+  // El admin se une al room para recibir actualizaciones en tiempo real
+  socket.on('join:admin', () => {
+    socket.join('admin_dashboard');
+    console.log(`[socket] admin ${socket.id} se unió a admin_dashboard`);
   });
 
   socket.on('disconnect', () => {
@@ -321,6 +369,221 @@ app.put('/api/order/:id/status', async (req, res) => {
   return res.json({ order: data });
 });
 
+// ── POST /api/orders/public ───────────────────────────────────────────────────
+// Formulario público del cliente — crea pedido sin mensajero y notifica a todos
+app.post('/api/orders/public', publicOrderLimiter, async (req, res) => {
+  const { pickup_address, pickup_lat, pickup_lng, delivery_address, delivery_lat, delivery_lng,
+          base_amount, payment_method, description } = req.body;
+
+  // Validaciones
+  if (!pickup_address || !delivery_address) {
+    return res.status(400).json({ error: 'Las direcciones de recogida y entrega son requeridas' });
+  }
+  if (!payment_method || !['efectivo', 'transferencia'].includes(payment_method)) {
+    return res.status(400).json({ error: 'Método de pago inválido. Debe ser efectivo o transferencia' });
+  }
+  if (base_amount !== undefined && (isNaN(Number(base_amount)) || Number(base_amount) < 0 || Number(base_amount) > 10000000)) {
+    return res.status(400).json({ error: 'Base inválida' });
+  }
+
+  const lat_p = pickup_lat  ? parseFloat(pickup_lat)  : null;
+  const lng_p = pickup_lng  ? parseFloat(pickup_lng)  : null;
+  const lat_d = delivery_lat ? parseFloat(delivery_lat) : null;
+  const lng_d = delivery_lng ? parseFloat(delivery_lng) : null;
+
+  if (lat_p !== null && !isValidCoord(lat_p, lng_p)) {
+    return res.status(400).json({ error: 'Coordenadas de recogida inválidas' });
+  }
+  if (lat_d !== null && !isValidCoord(lat_d, lng_d)) {
+    return res.status(400).json({ error: 'Coordenadas de entrega inválidas' });
+  }
+
+  try {
+    // Insertar pedido sin courier_id (source='cliente')
+    const { data: order, error: insertError } = await supabase
+      .from('orders')
+      .insert({
+        pickup_address:  String(pickup_address).slice(0, 300),
+        pickup_lat:      lat_p,
+        pickup_lng:      lng_p,
+        delivery_address: String(delivery_address).slice(0, 300),
+        delivery_lat:    lat_d,
+        delivery_lng:    lng_d,
+        base_amount:     base_amount ? Number(base_amount) : null,
+        payment_method,
+        description:     description ? String(description).slice(0, 500) : null,
+        source:          'cliente',
+        status:          'pendiente',
+        courier_id:      null,
+      })
+      .select('id, tracking_token')
+      .single();
+
+    if (insertError || !order) {
+      console.error('[orders/public] Error insertando:', insertError?.message);
+      return res.status(500).json({ error: 'No se pudo crear la solicitud' });
+    }
+
+    // Notificar a TODOS los mensajeros activos con push_token
+    const { data: couriers } = await supabase
+      .from('couriers')
+      .select('push_token')
+      .eq('is_active', true)
+      .not('push_token', 'is', null);
+
+    const tokens = (couriers || []).map(c => c.push_token).filter(Boolean);
+    if (tokens.length > 0) {
+      await sendFCMBroadcast(
+        tokens,
+        '🔔 Nuevo Servicio Disponible',
+        `📍 Recogida: ${String(pickup_address).slice(0, 80)}${base_amount ? ` — Base: $${Number(base_amount).toLocaleString('es-CO')}` : ''}`,
+        { type: 'nuevo_servicio', orderId: order.id }
+      );
+    }
+
+    // Notificar al admin en tiempo real
+    io.to('admin_dashboard').emit('order:new_public', { order_id: order.id });
+
+    console.log(`[orders/public] Pedido creado: ${order.id} — Notificados: ${tokens.length} mensajeros`);
+    return res.json({ order_id: order.id, tracking_token: order.tracking_token });
+
+  } catch (err) {
+    console.error('[orders/public] Error:', err.message);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// ── GET /api/orders/available ─────────────────────────────────────────────────
+// Lista pedidos sin mensajero asignado (para la app del mensajero)
+app.get('/api/orders/available', async (req, res) => {
+  try {
+    const { data: orders, error } = await supabase
+      .from('orders')
+      .select('id, pickup_address, pickup_lat, pickup_lng, delivery_address, base_amount, payment_method, description, created_at')
+      .is('courier_id', null)
+      .eq('status', 'pendiente')
+      .eq('source', 'cliente')
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    if (error) {
+      console.error('[orders/available] Error:', error.message);
+      return res.status(500).json({ error: 'Error obteniendo pedidos disponibles' });
+    }
+
+    return res.json({ orders: orders || [] });
+  } catch (err) {
+    console.error('[orders/available] Error:', err.message);
+    return res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ── POST /api/orders/:id/claim ────────────────────────────────────────────────
+// El mensajero toma un pedido disponible — transacción atómica anti-race condition
+app.post('/api/orders/:id/claim', async (req, res) => {
+  const { id } = req.params;
+  const { courier_id } = req.body;
+
+  if (!isValidUUID(id) || !isValidUUID(courier_id)) {
+    return res.status(400).json({ error: 'IDs inválidos' });
+  }
+
+  try {
+    // Verificar que el mensajero existe y está activo
+    const { data: courier, error: courierError } = await supabase
+      .from('couriers')
+      .select('id, name')
+      .eq('id', courier_id)
+      .eq('is_active', true)
+      .single();
+
+    if (courierError || !courier) {
+      return res.status(403).json({ error: 'Mensajero no encontrado o inactivo' });
+    }
+
+    // Verificar que tiene menos de 2 pedidos activos en_camino
+    const { count: activeCount } = await supabase
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('courier_id', courier_id)
+      .eq('status', 'en_camino');
+
+    if (activeCount >= 2) {
+      return res.status(409).json({ error: 'Ya tienes 2 servicios activos. Entrega uno primero.' });
+    }
+
+    // UPDATE atómico: solo asigna si courier_id sigue siendo NULL
+    const { data: updated, error: updateError } = await supabase
+      .from('orders')
+      .update({ courier_id, status: 'pendiente' })
+      .eq('id', id)
+      .is('courier_id', null)
+      .eq('status', 'pendiente')
+      .select('id, tracking_token, pickup_address, delivery_address, base_amount, payment_method, description')
+      .single();
+
+    if (updateError || !updated) {
+      // Otro mensajero ya lo tomó
+      return res.status(409).json({ error: 'Este servicio ya fue tomado por otro mensajero' });
+    }
+
+    // Notificar al admin en tiempo real
+    io.to('admin_dashboard').emit('order:claimed', {
+      order_id: id,
+      courier_id,
+      courier_name: courier.name,
+    });
+
+    console.log(`[orders/claim] Pedido ${id} tomado por mensajero ${courier.name}`);
+    return res.json({ ok: true, order: updated });
+
+  } catch (err) {
+    console.error('[orders/claim] Error:', err.message);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// ── POST /api/courier/idle-location ──────────────────────────────────────────
+// GPS idle del mensajero cuando NO está en entrega activa
+const idleLocationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  message: { error: 'Límite de actualizaciones de ubicación idle alcanzado.' },
+});
+
+app.post('/api/courier/idle-location', idleLocationLimiter, async (req, res) => {
+  const { courier_id, latitude, longitude } = req.body;
+
+  if (!isValidUUID(courier_id)) {
+    return res.status(400).json({ error: 'courier_id inválido' });
+  }
+
+  const lat = parseFloat(latitude);
+  const lng = parseFloat(longitude);
+  if (!isValidCoord(lat, lng)) {
+    return res.status(400).json({ error: 'Coordenadas inválidas' });
+  }
+
+  try {
+    const { error } = await supabase
+      .from('courier_idle_locations')
+      .upsert(
+        { courier_id, latitude: lat, longitude: lng, updated_at: new Date().toISOString() },
+        { onConflict: 'courier_id' }
+      );
+
+    if (error) {
+      console.error('[idle-location] Error guardando:', error.message);
+      return res.status(500).json({ error: 'No se pudo guardar la ubicación' });
+    }
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[idle-location] Error:', err.message);
+    return res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // ── Listener Supabase Realtime → notificación FCM al mensajero ────────────────
 // El backend escucha INSERT en orders y envía FCM directo al dispositivo.
 // Esto funciona aunque la app del mensajero esté cerrada o la pantalla apagada.
@@ -332,6 +595,7 @@ function startOrdersListener() {
       { event: 'INSERT', schema: 'public', table: 'orders' },
       async (payload) => {
         const order = payload.new;
+        // Pedidos de cliente sin asignar: la notificación ya la envía /api/orders/public
         if (!order?.courier_id) return;
 
         try {
