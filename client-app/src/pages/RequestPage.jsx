@@ -81,7 +81,8 @@ export default function RequestPage() {
   const [pickupCoords,    setPickupCoords]    = useState(null)   // { lat, lng }
   const [deliveryAddress, setDeliveryAddress] = useState('')
   const [deliveryCoords,  setDeliveryCoords]  = useState(null)
-  const [baseAmount,      setBaseAmount]      = useState('')
+  const [baseAmount,      setBaseAmount]      = useState('')   // valor numérico real
+  const [baseDisplay,     setBaseDisplay]     = useState('')   // valor formateado con puntos
   const [paymentMethod,   setPaymentMethod]   = useState('efectivo')
   const [description,     setDescription]     = useState('')
 
@@ -117,6 +118,16 @@ export default function RequestPage() {
   }
 
   const mapCenter = pickupCoords || deliveryCoords || { lat: 10.4634, lng: -73.2532 }
+
+  // Formatea el campo base con puntos de miles mientras el usuario escribe
+  const handleBaseChange = (e) => {
+    const raw = e.target.value.replace(/\D/g, '')
+    if (raw === '') { setBaseAmount(''); setBaseDisplay(''); return }
+    const num = parseInt(raw, 10)
+    if (num > 10000000) return
+    setBaseAmount(String(num))
+    setBaseDisplay(num.toLocaleString('es-CO'))
+  }
 
   // ── Submit ──────────────────────────────────────────────────────────────────
   const handleSubmit = async (e) => {
@@ -175,9 +186,7 @@ export default function RequestPage() {
 
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-orange-500/20 mb-4">
-            <span className="text-3xl">🛵</span>
-          </div>
+          <img src="/logo.png" alt="1012Delivery" className="h-16 mx-auto mb-4 object-contain" />
           <h1 className="text-3xl font-bold text-white">Solicitar servicio</h1>
           <p className="text-gray-400 mt-1 text-sm">Completa los datos para solicitar un mensajero</p>
         </div>
@@ -285,12 +294,10 @@ export default function RequestPage() {
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">$</span>
                 <input
-                  type="number"
-                  min="0"
-                  max="10000000"
-                  step="500"
-                  value={baseAmount}
-                  onChange={e => setBaseAmount(e.target.value)}
+                  type="text"
+                  inputMode="numeric"
+                  value={baseDisplay}
+                  onChange={handleBaseChange}
                   placeholder="0"
                   className="w-full bg-gray-800 text-white placeholder-gray-500 rounded-xl pl-8 pr-4 py-3 text-sm border border-gray-700 focus:outline-none focus:border-orange-500 transition-colors"
                 />

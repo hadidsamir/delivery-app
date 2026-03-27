@@ -28,11 +28,19 @@ export default function AddressAutocomplete({ value, onChange, onSelect, placeho
   useEffect(() => {
     if (!ready || !inputRef.current || autocompleteRef.current) return
 
+    // Restringir resultados a Valledupar, Cesar, Colombia
+    const valleduparBounds = new window.google.maps.LatLngBounds(
+      { lat: 10.30, lng: -73.40 },  // SW
+      { lat: 10.60, lng: -73.10 }   // NE
+    )
+
     autocompleteRef.current = new window.google.maps.places.Autocomplete(
       inputRef.current,
       {
         types: ['geocode', 'establishment'],
         componentRestrictions: { country: 'co' },
+        bounds: valleduparBounds,
+        strictBounds: false,
         fields: ['formatted_address', 'geometry', 'name'],
       }
     )
