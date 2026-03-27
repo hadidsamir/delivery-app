@@ -373,7 +373,7 @@ app.put('/api/order/:id/status', async (req, res) => {
 // Formulario público del cliente — crea pedido sin mensajero y notifica a todos
 app.post('/api/orders/public', publicOrderLimiter, async (req, res) => {
   const { pickup_address, pickup_lat, pickup_lng, delivery_address, delivery_lat, delivery_lng,
-          base_amount, payment_method, description, client_name } = req.body;
+          base_amount, payment_method, description, client_name, client_phone } = req.body;
 
   // Validaciones
   if (!pickup_address || !delivery_address) {
@@ -403,7 +403,8 @@ app.post('/api/orders/public', publicOrderLimiter, async (req, res) => {
     const { data: order, error: insertError } = await supabase
       .from('orders')
       .insert({
-        client_name:     client_name ? String(client_name).slice(0, 80) : null,
+        client_name:     client_name  ? String(client_name).slice(0, 80)  : null,
+        client_phone:    client_phone ? String(client_phone).slice(0, 20) : null,
         pickup_address:  String(pickup_address).slice(0, 300),
         pickup_lat:      lat_p,
         pickup_lng:      lng_p,

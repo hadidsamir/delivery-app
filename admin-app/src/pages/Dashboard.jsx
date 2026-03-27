@@ -364,6 +364,9 @@ export default function Dashboard() {
                       {order.client_name && (
                         <p className="font-semibold text-gray-900 dark:text-white text-sm mb-0.5">{order.client_name}</p>
                       )}
+                      {order.client_phone && (
+                        <p className="text-xs text-gray-400 dark:text-gray-500">{order.client_phone}</p>
+                      )}
                       <span className="font-mono text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-md">
                         #{order.id.slice(0, 8)}
                       </span>

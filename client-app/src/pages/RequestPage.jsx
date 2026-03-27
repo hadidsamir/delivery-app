@@ -82,6 +82,7 @@ export default function RequestPage() {
   const [deliveryAddress, setDeliveryAddress] = useState('')
   const [deliveryCoords,  setDeliveryCoords]  = useState(null)
   const [clientName,      setClientName]      = useState('')
+  const [clientPhone,     setClientPhone]     = useState('')
   const [baseAmount,      setBaseAmount]      = useState('')   // valor numérico real
   const [baseDisplay,     setBaseDisplay]     = useState('')   // valor formateado con puntos
   const [paymentMethod,   setPaymentMethod]   = useState('efectivo')
@@ -137,6 +138,7 @@ export default function RequestPage() {
     setError('')
 
     if (!clientName.trim()) return setError('Ingresa tu nombre')
+    if (!clientPhone.trim()) return setError('Ingresa tu número de contacto')
     if (!pickupAddress.trim()) return setError('Ingresa la dirección de recogida')
     if (!deliveryAddress.trim()) return setError('Ingresa la dirección de entrega')
     if (baseAmount !== '' && (isNaN(Number(baseAmount)) || Number(baseAmount) < 0)) {
@@ -158,6 +160,7 @@ export default function RequestPage() {
           delivery_lat:     deliveryCoords?.lat ?? null,
           delivery_lng:     deliveryCoords?.lng ?? null,
           client_name:      clientName.trim(),
+          client_phone:     clientPhone.trim(),
           base_amount:      baseAmount !== '' ? Number(baseAmount) : null,
           payment_method:   paymentMethod,
           description:      description.trim() || null,
@@ -196,17 +199,33 @@ export default function RequestPage() {
 
         <form onSubmit={handleSubmit} className="space-y-5">
 
-          {/* ── Nombre del solicitante ── */}
-          <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-            <label className="block text-white font-semibold mb-3">¿Cuál es tu nombre?</label>
-            <input
-              type="text"
-              value={clientName}
-              onChange={e => setClientName(e.target.value)}
-              placeholder="Tu nombre completo..."
-              maxLength={80}
-              className="w-full bg-gray-800 text-white placeholder-gray-500 rounded-xl px-4 py-3 text-sm border border-gray-700 focus:outline-none focus:border-orange-500 transition-colors"
-            />
+          {/* ── Datos del solicitante ── */}
+          <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800 space-y-4">
+            <h2 className="text-white font-semibold">Datos del solicitante</h2>
+
+            <div>
+              <label className="block text-gray-400 text-xs mb-1.5">¿Nombre del usuario?</label>
+              <input
+                type="text"
+                value={clientName}
+                onChange={e => setClientName(e.target.value)}
+                placeholder="Tu nombre completo..."
+                maxLength={80}
+                className="w-full bg-gray-800 text-white placeholder-gray-500 rounded-xl px-4 py-3 text-sm border border-gray-700 focus:outline-none focus:border-orange-500 transition-colors"
+              />
+            </div>
+
+            <div>
+              <label className="block text-gray-400 text-xs mb-1.5">Número de contacto</label>
+              <input
+                type="tel"
+                inputMode="numeric"
+                value={clientPhone}
+                onChange={e => setClientPhone(e.target.value.replace(/\D/g, '').slice(0, 15))}
+                placeholder="Ej: 3001234567"
+                className="w-full bg-gray-800 text-white placeholder-gray-500 rounded-xl px-4 py-3 text-sm border border-gray-700 focus:outline-none focus:border-orange-500 transition-colors"
+              />
+            </div>
           </div>
 
           {/* ── Mapa con ambos marcadores ── */}
