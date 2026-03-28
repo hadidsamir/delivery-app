@@ -193,7 +193,7 @@ export default function RequestPage() {
 
         {/* Header */}
         <div className="text-center mb-8">
-          <img src="/logo.png" alt="1012Delivery" className="h-16 mx-auto mb-4 object-contain" />
+          <img src="/logo.png" alt="1012Delivery" style={{ height: '210px', width: 'auto', objectFit: 'contain' }} className="mx-auto mb-2" />
           <h1 className="text-3xl font-bold text-white">Solicitar servicio</h1>
           <p className="text-gray-400 mt-1 text-sm">Completa los datos para solicitar un mensajero</p>
         </div>
