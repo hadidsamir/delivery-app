@@ -365,7 +365,7 @@ app.put('/api/order/:id/status', async (req, res) => {
 // Formulario público del cliente — crea pedido sin mensajero y notifica a todos
 app.post('/api/orders/public', publicOrderLimiter, async (req, res) => {
   const { pickup_address, pickup_lat, pickup_lng, delivery_address, delivery_lat, delivery_lng,
-          base_amount, payment_method, description, client_name, client_phone } = req.body;
+          base_amount, payment_method, description, client_name, client_phone, whatsapp_phone } = req.body;
 
   // Validaciones
   if (!pickup_address || !delivery_address) {
@@ -406,6 +406,7 @@ app.post('/api/orders/public', publicOrderLimiter, async (req, res) => {
         base_amount:     base_amount ? Number(base_amount) : null,
         payment_method,
         description:     description ? String(description).slice(0, 500) : null,
+        whatsapp_phone:  whatsapp_phone ? String(whatsapp_phone).slice(0, 20) : null,
         source:          'cliente',
         status:          'pendiente',
         courier_id:      null,

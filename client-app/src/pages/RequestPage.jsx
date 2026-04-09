@@ -76,6 +76,9 @@ function ConfirmationView({ orderId }) {
 export default function RequestPage() {
   const { isLoaded } = useJsApiLoader({ googleMapsApiKey: MAPS_KEY, libraries: LIBRARIES })
 
+  // Número de WhatsApp del cliente (viene del bot via ?wp=...)
+  const whatsappPhone = new URLSearchParams(window.location.search).get('wp') || null
+
   // Campos del formulario
   const [pickupAddress,   setPickupAddress]   = useState('')
   const [pickupCoords,    setPickupCoords]    = useState(null)   // { lat, lng }
@@ -162,6 +165,7 @@ export default function RequestPage() {
           delivery_lng:     deliveryCoords?.lng ?? null,
           client_name:      clientName.trim(),
           client_phone:     clientPhone.trim(),
+          whatsapp_phone:   whatsappPhone,
           base_amount:      baseAmount !== '' ? Number(baseAmount) : null,
           payment_method:   paymentMethod,
           description:      description.trim() || null,
