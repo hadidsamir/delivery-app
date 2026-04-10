@@ -62,7 +62,7 @@ export default function TrackingScreen({ route, navigation }) {
       // - No hay diálogos aquí → no hay race conditions
       await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
         accuracy: Location.Accuracy.High,
-        timeInterval: 6000,
+        timeInterval: 3000,
         distanceInterval: 0,
         foregroundService: {
           notificationTitle: '1012Delivery - Rastreo activo',
