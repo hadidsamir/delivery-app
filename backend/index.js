@@ -759,6 +759,17 @@ app.post('/api/support/escalate', async (req, res) => {
     // Notificar al admin via Socket.io
     io.emit('support:escalated', { phone, display_name, reason, summary });
 
+    // Notificar al admin via WhatsApp personal
+    const nombre  = display_name || phone;
+    const motivo  = reason || 'Solicitado por cliente';
+    const resumen = summary ? `\n\nResumen: ${summary}` : '';
+    await sendWhatsApp('573151169226',
+      `⚠️ *Atención requerida*\n\n` +
+      `El cliente *${nombre}* (${phone}) necesita hablar con un agente humano.\n` +
+      `Motivo: ${motivo}${resumen}\n\n` +
+      `Respóndele desde el panel: https://1012delivery.1012studiocreativo.com/support`
+    );
+
     res.json({ ok: true });
   } catch (err) {
     console.error('[Support] Error escalando:', err.message);
