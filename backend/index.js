@@ -621,6 +621,151 @@ function startOrdersListener() {
     });
 }
 
+// ── SOPORTE WHATSAPP: endpoints para escalación a humano ──────────────────────
+
+const YCLOUD_API_KEY = '5c80ecfa35ab81b3c1e92c068efb7a7b';
+const YCLOUD_FROM    = '573145827568';
+
+// Enviar mensaje WhatsApp via YCloud
+async function sendWhatsApp(to, body) {
+  const phone = String(to).replace(/\D/g, '');
+  const normalized = phone.startsWith('57') ? phone : `57${phone}`;
+  const res = await fetch('https://api.ycloud.com/v2/whatsapp/messages/sendDirectly', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': YCLOUD_API_KEY },
+    body: JSON.stringify({ from: YCLOUD_FROM, to: normalized, type: 'text', text: { body } }),
+  });
+  return res.ok;
+}
+
+// GET /api/support/chats — listar conversaciones escaladas (o todas activas)
+app.get('/api/support/chats', async (req, res) => {
+  try {
+    const { data: sessions, error } = await supabase
+      .from('chat_sessions')
+      .select('*')
+      .order('updated_at', { ascending: false });
+    if (error) throw error;
+
+    // Para cada sesión traer los últimos 50 mensajes
+    const results = await Promise.all(sessions.map(async (s) => {
+      const { data: messages } = await supabase
+        .from('chat_messages')
+        .select('*')
+        .eq('phone', s.phone)
+        .order('created_at', { ascending: true })
+        .limit(50);
+      return { ...s, messages: messages || [] };
+    }));
+
+    res.json(results);
+  } catch (err) {
+    console.error('[Support] Error listando chats:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/support/reply — admin responde al cliente
+app.post('/api/support/reply', async (req, res) => {
+  const { phone, body } = req.body;
+  if (!phone || !body) return res.status(400).json({ error: 'phone y body requeridos' });
+
+  try {
+    const ok = await sendWhatsApp(phone, body);
+    if (!ok) return res.status(502).json({ error: 'Error enviando WhatsApp via YCloud' });
+
+    // Guardar mensaje del humano en BD
+    await supabase.from('chat_messages').insert({
+      phone, direction: 'outbound', sender: 'human', body,
+    });
+    // Actualizar timestamp de sesión
+    await supabase.from('chat_sessions')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('phone', phone);
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Support] Error enviando respuesta:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/support/resume — admin reactiva el bot para esa conversación
+app.post('/api/support/resume', async (req, res) => {
+  const { phone } = req.body;
+  if (!phone) return res.status(400).json({ error: 'phone requerido' });
+
+  try {
+    await supabase.from('chat_sessions').update({
+      human_takeover: false,
+      resolved_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq('phone', phone);
+
+    // Avisar al cliente que el bot retoma
+    await sendWhatsApp(phone, '✅ Hemos resuelto tu caso. El asistente virtual está de nuevo disponible para ayudarte. ¡Escríbenos cuando quieras!');
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Support] Error reanudando bot:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/support/inbound — recibe mensajes del cliente cuando está en modo humano
+// (n8n llama este endpoint en vez de procesar con IA)
+app.post('/api/support/inbound', async (req, res) => {
+  const { phone, body, display_name } = req.body;
+  if (!phone || !body) return res.status(400).json({ error: 'phone y body requeridos' });
+
+  try {
+    // Upsert sesión
+    await supabase.from('chat_sessions').upsert({
+      phone,
+      display_name: display_name || phone,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'phone', ignoreDuplicates: false });
+
+    // Guardar mensaje entrante
+    await supabase.from('chat_messages').insert({
+      phone, direction: 'inbound', sender: 'client', body,
+    });
+
+    // Emitir evento Socket.io para que el panel admin lo vea en tiempo real
+    io.emit('support:message', { phone, body, sender: 'client', created_at: new Date().toISOString() });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Support] Error guardando mensaje entrante:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/support/escalate — n8n llama esto cuando el bot decide escalar
+app.post('/api/support/escalate', async (req, res) => {
+  const { phone, display_name, reason, summary } = req.body;
+  if (!phone) return res.status(400).json({ error: 'phone requerido' });
+
+  try {
+    await supabase.from('chat_sessions').upsert({
+      phone,
+      display_name: display_name || phone,
+      human_takeover: true,
+      takeover_reason: reason || 'Solicitado por cliente',
+      takeover_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'phone' });
+
+    // Notificar al admin via Socket.io
+    io.emit('support:escalated', { phone, display_name, reason, summary });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Support] Error escalando:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Arrancar servidor ──────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {

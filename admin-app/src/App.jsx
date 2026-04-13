@@ -6,6 +6,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import NewOrder from './pages/NewOrder'
 import Couriers from './pages/Couriers'
+import Support from './pages/Support'
 
 function RequireAuth({ children }) {
   const [status, setStatus] = useState('loading') // 'loading' | 'auth' | 'unauth'
@@ -42,6 +43,7 @@ export default function App() {
         <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
         <Route path="/orders/new" element={<RequireAuth><NewOrder /></RequireAuth>} />
         <Route path="/couriers" element={<RequireAuth><Couriers /></RequireAuth>} />
+        <Route path="/support" element={<RequireAuth><Support /></RequireAuth>} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>
