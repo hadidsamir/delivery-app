@@ -7,7 +7,7 @@ builder = "nixpacks"
 buildCommand = "corepack enable && corepack prepare pnpm@9.15.4 --activate && pnpm install && pnpm --filter @paperclipai/ui build && cp -r ui/dist server/ui-dist && pnpm --filter @paperclipai/plugin-sdk build && pnpm --filter @paperclipai/shared build && pnpm --filter @paperclipai/db build && pnpm --filter @paperclipai/adapter-utils build"
 
 [deploy]
-startCommand = "cd server && node -e \"require('tsx/esm'); import('./src/index.ts')\" || node dist/index.js"
+startCommand = "cd server && node --import tsx/esm src/index.ts"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
