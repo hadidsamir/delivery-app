@@ -1,0 +1,26 @@
+# railway.toml — Configuración de deploy de Paperclip en Railway
+# Propósito: Define cómo Railway construye y despliega el servidor de Paperclip
+# para el sistema de agentes IA de 1012Delivery.
+
+[build]
+builder = "nixpacks"
+buildCommand = "npm install -g pnpm@9.15.4 && pnpm install && pnpm --filter @paperclipai/ui build && cp -r ui/dist server/ui-dist && pnpm --filter @paperclipai/plugin-sdk build && pnpm --filter @paperclipai/shared build && pnpm --filter @paperclipai/db build && pnpm --filter @paperclipai/adapter-utils build"
+
+[deploy]
+startCommand = "cd server && node -e \"require('tsx/esm'); import('./src/index.ts')\" || node dist/index.js"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
+
+[[services]]
+name = "paperclip-1012delivery"
+
+[services.variables]
+PORT = "3100"
+NODE_ENV = "production"
+SERVE_UI = "true"
+PAPERCLIP_DEPLOYMENT_MODE = "cloud"
+# DATABASE_URL → configurar como variable de entorno en Railway dashboard
+# PAPERCLIP_PUBLIC_URL → URL pública asignada por Railway
+# PAPERCLIP_AUTH_PUBLIC_BASE_URL → igual que PAPERCLIP_PUBLIC_URL

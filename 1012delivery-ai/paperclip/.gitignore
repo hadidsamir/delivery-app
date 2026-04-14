@@ -1,0 +1,10 @@
+node_modules/
+*/node_modules/
+**/node_modules/
+.env
+*.log
+dist/
+ui/dist/
+server/ui-dist/
+packages/*/dist/
+cli/node_modules/

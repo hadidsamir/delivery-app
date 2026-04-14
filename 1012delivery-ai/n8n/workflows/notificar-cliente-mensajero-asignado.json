@@ -1,0 +1,238 @@
+{
+  "name": "1012Delivery — Notificar Cliente cuando Mensajero Toma el Servicio",
+  "nodes": [
+
+    {
+      "id": "node-trigger-supabase",
+      "name": "Trigger: Pedido en Camino (Supabase)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "parameters": {
+        "path": "1012delivery-order-claimed",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "notes": "Este webhook es llamado por el backend de 1012Delivery cada vez que\nun mensajero toma un pedido (PUT /api/order/:id/status → status=en_camino).\n\nALTERNATIVA: usar Supabase Webhook (Database Webhooks en Supabase Dashboard)\n→ Table: orders | Event: UPDATE | Filter: status=en_camino\n→ URL: https://TU-N8N.com/webhook/1012delivery-order-claimed"
+    },
+
+    {
+      "id": "node-if-en-camino",
+      "name": "¿Status es en_camino?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [220, 300],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "cond-status",
+              "leftValue": "={{ $json.body.record?.status ?? $json.body.new?.status ?? $json.body.status }}",
+              "rightValue": "en_camino",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "notes": "Filtra solo los cambios donde el pedido pasa a en_camino.\nFunciona con webhooks de Supabase (body.record.status) y del backend propio."
+    },
+
+    {
+      "id": "node-extract-order-id",
+      "name": "Extraer Order ID",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [440, 200],
+      "parameters": {
+        "mode": "manual",
+        "fields": {
+          "values": [
+            {
+              "name": "orderId",
+              "type": "string",
+              "value": "={{ $json.body.record?.id ?? $json.body.new?.id ?? $json.body.id }}"
+            },
+            {
+              "name": "courierId",
+              "type": "string",
+              "value": "={{ $json.body.record?.courier_id ?? $json.body.new?.courier_id ?? $json.body.courier_id }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "node-get-order",
+      "name": "Obtener Datos del Pedido",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 200],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://ujuirbwkmwyjgafddcdk.supabase.co/rest/v1/orders?id=eq.{{ $json.orderId }}&select=id,client_name,client_phone,delivery_address,tracking_token,courier_id,items",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_ANON_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_ANON_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "options": { "response": { "response": { "responseFormat": "json" } } }
+      }
+    },
+
+    {
+      "id": "node-get-courier",
+      "name": "Obtener Datos del Mensajero",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 400],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://ujuirbwkmwyjgafddcdk.supabase.co/rest/v1/couriers?id=eq.{{ $('Extraer Order ID').item.json.courierId }}&select=id,name,phone,photo_url",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_ANON_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_ANON_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "options": { "response": { "response": { "responseFormat": "json" } } }
+      }
+    },
+
+    {
+      "id": "node-combinar",
+      "name": "Combinar Pedido + Mensajero",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300],
+      "parameters": {
+        "jsCode": "const orderData = $('Obtener Datos del Pedido').item.json;\nconst courierData = $('Obtener Datos del Mensajero').item.json;\n\n// Supabase devuelve arrays, tomar el primer elemento\nconst order = Array.isArray(orderData) ? orderData[0] : orderData;\nconst courier = Array.isArray(courierData) ? courierData[0] : courierData;\n\nif (!order || !courier) {\n  throw new Error('No se encontró el pedido o el mensajero');\n}\n\nconst linkRastreo = `https://1012rastreo.1012studiocreativo.com/track/${order.tracking_token}`;\n\n// Formatear el número de teléfono del cliente\n// YCloud requiere formato internacional sin + ni espacios: 573XXXXXXXXX\nlet clientPhone = order.client_phone.replace(/[^0-9]/g, '');\nif (clientPhone.startsWith('0')) clientPhone = '57' + clientPhone.slice(1);\nif (!clientPhone.startsWith('57')) clientPhone = '57' + clientPhone;\n\nreturn {\n  json: {\n    clientPhone,\n    clientName: order.client_name,\n    deliveryAddress: order.delivery_address,\n    trackingLink: linkRastreo,\n    courierName: courier.name,\n    courierPhone: courier.phone,\n    orderId: order.id\n  }\n};"
+      }
+    },
+
+    {
+      "id": "node-mensaje-whatsapp",
+      "name": "Construir Mensaje para Cliente",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1100, 300],
+      "parameters": {
+        "mode": "manual",
+        "fields": {
+          "values": [
+            {
+              "name": "mensaje",
+              "type": "string",
+              "value": "=¡Hola {{ $json.clientName }}! Tu mensajero ya tomó tu servicio y está en camino 🛵\n\nMensajero: {{ $json.courierName }}\n\nPuedes rastrear tu pedido en tiempo real aquí:\n{{ $json.trackingLink }}\n\nCualquier duda escríbenos. ¡Gracias por usar 1012Entrega!"
+            },
+            { "name": "clientPhone",  "type": "string", "value": "={{ $json.clientPhone }}" },
+            { "name": "trackingLink", "type": "string", "value": "={{ $json.trackingLink }}" },
+            { "name": "courierName",  "type": "string", "value": "={{ $json.courierName }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "node-enviar-ycloud",
+      "name": "Enviar WhatsApp al Cliente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.ycloud.com/v2/whatsapp/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-API-Key",    "value": "={{ $vars.YCLOUD_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"from\": \"{{ $vars.YCLOUD_PHONE_NUMBER }}\",\n  \"to\": \"{{ $json.clientPhone }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"{{ $json.mensaje.replace(/\"/g, '\\\\\"').replace(/\\n/g, '\\\\n') }}\"\n  }\n}",
+        "options": {}
+      },
+      "notes": "Envía el mensaje al cliente con el nombre del mensajero y el link de rastreo."
+    },
+
+    {
+      "id": "node-log-supabase",
+      "name": "Registrar Notificación Enviada",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://ujuirbwkmwyjgafddcdk.supabase.co/rest/v1/whatsapp_notifications",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_ANON_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_ANON_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"order_id\": \"{{ $('Combinar Pedido + Mensajero').item.json.orderId }}\",\n  \"to_phone\": \"{{ $('Combinar Pedido + Mensajero').item.json.clientPhone }}\",\n  \"type\": \"mensajero_asignado\",\n  \"tracking_link\": \"{{ $('Combinar Pedido + Mensajero').item.json.trackingLink }}\"\n}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "notes": "Registra en Supabase que se envió la notificación. Requiere tabla whatsapp_notifications."
+    }
+
+  ],
+
+  "connections": {
+    "Trigger: Pedido en Camino (Supabase)": {
+      "main": [[{ "node": "¿Status es en_camino?", "type": "main", "index": 0 }]]
+    },
+    "¿Status es en_camino?": {
+      "main": [
+        [{ "node": "Extraer Order ID", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Extraer Order ID": {
+      "main": [[
+        { "node": "Obtener Datos del Pedido",   "type": "main", "index": 0 },
+        { "node": "Obtener Datos del Mensajero", "type": "main", "index": 0 }
+      ]]
+    },
+    "Obtener Datos del Pedido": {
+      "main": [[{ "node": "Combinar Pedido + Mensajero", "type": "main", "index": 0 }]]
+    },
+    "Obtener Datos del Mensajero": {
+      "main": [[{ "node": "Combinar Pedido + Mensajero", "type": "main", "index": 1 }]]
+    },
+    "Combinar Pedido + Mensajero": {
+      "main": [[{ "node": "Construir Mensaje para Cliente", "type": "main", "index": 0 }]]
+    },
+    "Construir Mensaje para Cliente": {
+      "main": [[{ "node": "Enviar WhatsApp al Cliente", "type": "main", "index": 0 }]]
+    },
+    "Enviar WhatsApp al Cliente": {
+      "main": [[{ "node": "Registrar Notificación Enviada", "type": "main", "index": 0 }]]
+    }
+  },
+
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+
+  "active": false,
+  "tags": ["whatsapp", "1012delivery", "notificaciones"]
+}

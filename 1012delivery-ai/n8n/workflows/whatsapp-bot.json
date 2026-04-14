@@ -1,0 +1,556 @@
+{
+  "name": "1012Delivery — WhatsApp Bot (YCloud + Claude)",
+  "nodes": [
+
+    {
+      "id": "node-webhook",
+      "name": "Webhook YCloud",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "parameters": {
+        "path": "1012delivery-whatsapp",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "responseData": "allEntries",
+        "options": {}
+      },
+      "notes": "YCloud envía todos los mensajes entrantes de WhatsApp aquí.\nURL: https://TU-N8N.com/webhook/1012delivery-whatsapp\nConfigurar esta URL en el dashboard de YCloud → Webhooks."
+    },
+
+    {
+      "id": "node-if-valid",
+      "name": "¿Es mensaje entrante?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [220, 300],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "cond-type",
+              "leftValue": "={{ $json.body.type }}",
+              "rightValue": "whatsapp.inbound_message.received",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+
+    {
+      "id": "node-extract",
+      "name": "Extraer Datos del Mensaje",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [440, 300],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "fields": {
+          "values": [
+            { "name": "phone",       "type": "string", "value": "={{ $json.body.data.message.from }}" },
+            { "name": "messageId",   "type": "string", "value": "={{ $json.body.data.message.id }}" },
+            { "name": "messageType", "type": "string", "value": "={{ $json.body.data.message.type }}" },
+            { "name": "textBody",    "type": "string", "value": "={{ $json.body.data.message.type === 'text' ? $json.body.data.message.text.body : '' }}" },
+            { "name": "audioUrl",    "type": "string", "value": "={{ $json.body.data.message.type === 'audio' ? $json.body.data.message.audio.url : '' }}" },
+            { "name": "audioId",     "type": "string", "value": "={{ $json.body.data.message.type === 'audio' ? $json.body.data.message.audio.id : '' }}" },
+            { "name": "timestamp",   "type": "string", "value": "={{ $json.body.data.message.createTime }}" },
+            { "name": "executionId", "type": "string", "value": "={{ $execution.id }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "node-supabase-cliente",
+      "name": "Buscar Cliente en Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://ujuirbwkmwyjgafddcdk.supabase.co/rest/v1/orders?client_phone=eq.{{ $json.phone }}&status=eq.en_camino&select=id,client_name,delivery_address,status,items,courier_id,tracking_token&order=created_at.desc&limit=1",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_ANON_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_ANON_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "options": { "response": { "response": { "responseFormat": "json" } } }
+      },
+      "notes": "Busca pedidos activos del cliente. Usar variable n8n: SUPABASE_ANON_KEY"
+    },
+
+    {
+      "id": "node-merge-context",
+      "name": "Combinar Contexto",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [880, 300],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "fields": {
+          "values": [
+            { "name": "phone",        "type": "string", "value": "={{ $('Extraer Datos del Mensaje').item.json.phone }}" },
+            { "name": "messageId",    "type": "string", "value": "={{ $('Extraer Datos del Mensaje').item.json.messageId }}" },
+            { "name": "messageType",  "type": "string", "value": "={{ $('Extraer Datos del Mensaje').item.json.messageType }}" },
+            { "name": "textBody",     "type": "string", "value": "={{ $('Extraer Datos del Mensaje').item.json.textBody }}" },
+            { "name": "audioUrl",     "type": "string", "value": "={{ $('Extraer Datos del Mensaje').item.json.audioUrl }}" },
+            { "name": "audioId",      "type": "string", "value": "={{ $('Extraer Datos del Mensaje').item.json.audioId }}" },
+            { "name": "executionId",  "type": "string", "value": "={{ $('Extraer Datos del Mensaje').item.json.executionId }}" },
+            { "name": "pedidoActivo", "type": "string", "value": "={{ JSON.stringify($json) }}" },
+            { "name": "bufferKey",    "type": "string", "value": "=buffer:{{ $('Extraer Datos del Mensaje').item.json.phone }}" },
+            { "name": "lockKey",      "type": "string", "value": "=lock:{{ $('Extraer Datos del Mensaje').item.json.phone }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "node-redis-lpush",
+      "name": "Buffer: Guardar Mensaje",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [1100, 300],
+      "parameters": {
+        "operation": "lpush",
+        "key": "={{ $json.bufferKey }}",
+        "value": "={{ JSON.stringify({ type: $json.messageType, text: $json.textBody, audioUrl: $json.audioUrl, audioId: $json.audioId, ts: Date.now() }) }}"
+      },
+      "credentials": { "redis": { "id": "redis-credential-id", "name": "Redis 1012" } },
+      "notes": "Agrega el mensaje a la lista Redis. Clave: buffer:{phone}"
+    },
+
+    {
+      "id": "node-redis-set-lock",
+      "name": "Buffer: Activar Lock",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [1320, 300],
+      "parameters": {
+        "operation": "set",
+        "key": "={{ $json.lockKey }}",
+        "value": "={{ $json.executionId }}",
+        "expire": true,
+        "ttl": 6
+      },
+      "credentials": { "redis": { "id": "redis-credential-id", "name": "Redis 1012" } },
+      "notes": "Graba el ID de esta ejecución como dueño del lock. TTL: 6s"
+    },
+
+    {
+      "id": "node-wait",
+      "name": "Esperar 5 segundos",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1540, 300],
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds",
+        "resume": "timeInterval"
+      },
+      "notes": "Ventana de agrupación. Si el usuario envía otro mensaje en este tiempo, ese mensaje también entrará al buffer y el nuevo lock ganará."
+    },
+
+    {
+      "id": "node-redis-get-lock",
+      "name": "Buffer: Verificar Lock",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [1760, 300],
+      "parameters": {
+        "operation": "get",
+        "key": "={{ $json.lockKey }}"
+      },
+      "credentials": { "redis": { "id": "redis-credential-id", "name": "Redis 1012" } }
+    },
+
+    {
+      "id": "node-if-winner",
+      "name": "¿Soy el ganador?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1980, 300],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "cond-winner",
+              "leftValue": "={{ $json.value }}",
+              "rightValue": "={{ $('Combinar Contexto').item.json.executionId }}",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "notes": "Solo la ÚLTIMA ejecución procesa los mensajes. Las anteriores se detienen aquí."
+    },
+
+    {
+      "id": "node-redis-lrange",
+      "name": "Buffer: Obtener Mensajes",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [2200, 200],
+      "parameters": {
+        "operation": "lrange",
+        "key": "={{ $('Combinar Contexto').item.json.bufferKey }}",
+        "start": 0,
+        "end": -1
+      },
+      "credentials": { "redis": { "id": "redis-credential-id", "name": "Redis 1012" } },
+      "notes": "Obtiene todos los mensajes acumulados en el buffer."
+    },
+
+    {
+      "id": "node-redis-del-buffer",
+      "name": "Buffer: Limpiar Buffer",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [2420, 200],
+      "parameters": {
+        "operation": "delete",
+        "key": "={{ $('Combinar Contexto').item.json.bufferKey }}"
+      },
+      "credentials": { "redis": { "id": "redis-credential-id", "name": "Redis 1012" } }
+    },
+
+    {
+      "id": "node-redis-del-lock",
+      "name": "Buffer: Limpiar Lock",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [2640, 200],
+      "parameters": {
+        "operation": "delete",
+        "key": "={{ $('Combinar Contexto').item.json.lockKey }}"
+      },
+      "credentials": { "redis": { "id": "redis-credential-id", "name": "Redis 1012" } }
+    },
+
+    {
+      "id": "node-agrupar",
+      "name": "Agrupar y Clasificar Mensajes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2860, 200],
+      "parameters": {
+        "jsCode": "// Obtener todos los mensajes del buffer (vienen como array de strings JSON)\nconst rawMessages = $input.item.json.messages || [];\nconst context = $('Combinar Contexto').item.json;\n\n// Parsear cada mensaje\nconst messages = rawMessages.map(m => {\n  try { return typeof m === 'string' ? JSON.parse(m) : m; }\n  catch(e) { return { type: 'text', text: String(m) }; }\n});\n\n// Invertir (Redis LPUSH los guarda al revés)\nmessages.reverse();\n\n// Separar textos y audios\nconst textos = messages\n  .filter(m => m.type === 'text' && m.text)\n  .map(m => m.text);\n\nconst audios = messages\n  .filter(m => m.type === 'audio' && m.audioUrl)\n  .map(m => ({ url: m.audioUrl, id: m.audioId }));\n\nreturn {\n  json: {\n    phone: context.phone,\n    pedidoActivo: context.pedidoActivo,\n    textos,\n    audios,\n    tieneAudio: audios.length > 0,\n    textoAgrupado: textos.join('\\n'),\n    totalMensajes: messages.length\n  }\n};"
+      },
+      "notes": "Agrupa textos en uno solo. Separa audios para transcripción."
+    },
+
+    {
+      "id": "node-if-audio",
+      "name": "¿Tiene Audio?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3080, 200],
+      "parameters": {
+        "conditions": {
+          "options": { "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "cond-audio",
+              "leftValue": "={{ $json.tieneAudio }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true" }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+
+    {
+      "id": "node-descargar-audio",
+      "name": "Descargar Audio de YCloud",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3300, 100],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.audios[0].url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-API-Key", "value": "={{ $vars.YCLOUD_API_KEY }}" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "responseFormat": "file" } }
+        }
+      },
+      "notes": "Descarga el archivo de audio desde YCloud. Soporta OGG/opus de WhatsApp."
+    },
+
+    {
+      "id": "node-whisper",
+      "name": "Transcribir con Whisper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3520, 100],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/audio/transcriptions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $vars.OPENAI_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "model",    "value": "whisper-1" },
+            { "name": "language", "value": "es" },
+            { "name": "file",     "value": "={{ $binary.data }}", "parameterType": "formBinaryData", "inputDataFieldName": "data" }
+          ]
+        },
+        "options": {}
+      },
+      "notes": "Whisper transcribe el audio a texto en español."
+    },
+
+    {
+      "id": "node-merge-audio-text",
+      "name": "Combinar Texto + Transcripción",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [3740, 100],
+      "parameters": {
+        "mode": "manual",
+        "fields": {
+          "values": [
+            { "name": "phone",         "type": "string", "value": "={{ $('Agrupar y Clasificar Mensajes').item.json.phone }}" },
+            { "name": "pedidoActivo",  "type": "string", "value": "={{ $('Agrupar y Clasificar Mensajes').item.json.pedidoActivo }}" },
+            { "name": "mensajeFinal",  "type": "string", "value": "={{ [$('Agrupar y Clasificar Mensajes').item.json.textoAgrupado, '[Audio]: ' + $json.text].filter(Boolean).join('\\n') }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "node-solo-texto",
+      "name": "Formatear Solo Texto",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [3300, 300],
+      "parameters": {
+        "mode": "manual",
+        "fields": {
+          "values": [
+            { "name": "phone",        "type": "string", "value": "={{ $json.phone }}" },
+            { "name": "pedidoActivo", "type": "string", "value": "={{ $json.pedidoActivo }}" },
+            { "name": "mensajeFinal", "type": "string", "value": "={{ $json.textoAgrupado }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "node-merge-rutas",
+      "name": "Unir Rutas",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [3960, 200],
+      "parameters": {
+        "mode": "chooseBranch",
+        "chooseBranch": { "mode": "waitForBoth" }
+      },
+      "notes": "Une la ruta de audio y la ruta de texto en una sola."
+    },
+
+    {
+      "id": "node-contexto-final",
+      "name": "Preparar Contexto para IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4180, 200],
+      "parameters": {
+        "jsCode": "const item = $input.item.json;\n\n// Parsear pedido activo si existe\nlet pedido = null;\ntry {\n  const pedidos = JSON.parse(item.pedidoActivo || '[]');\n  pedido = Array.isArray(pedidos) && pedidos.length > 0 ? pedidos[0] : null;\n} catch(e) {}\n\n// Construir link de rastreo\nconst BASE_RASTREO = 'https://1012rastreo.1012studiocreativo.com/track/';\nconst linkRastreo = pedido && pedido.tracking_token\n  ? BASE_RASTREO + pedido.tracking_token\n  : null;\n\nconst contextoPedido = pedido\n  ? `El cliente tiene un pedido EN CAMINO:\\n- Cliente: ${pedido.client_name}\\n- Dirección de entrega: ${pedido.delivery_address}\\n- Estado: ${pedido.status}\\n- Items: ${JSON.stringify(pedido.items)}\\n- LINK DE RASTREO EN TIEMPO REAL: ${linkRastreo || 'no disponible'}\\n\\nSi el cliente pregunta dónde está su pedido o quiere rastrearlo, compártele ese link de rastreo. NO inventes el link, usa exactamente el que aparece aquí.`\n  : 'El cliente NO tiene pedidos activos en este momento. Si quiere solicitar un domicilio, envíalo a: https://1012rastreo.1012studiocreativo.com/solicitar';\n\nconst prompt = `=== CONTEXTO DEL CLIENTE ===\\nTeléfono: ${item.phone}\\n${contextoPedido}\\n\\n=== MENSAJE DEL CLIENTE ===\\n${item.mensajeFinal}`;\n\nreturn {\n  json: {\n    phone: item.phone,\n    promptParaIA: prompt,\n    mensajeFinal: item.mensajeFinal,\n    tienePedidoActivo: !!pedido,\n    linkRastreo: linkRastreo\n  }\n};"
+      }
+    },
+
+    {
+      "id": "node-ai-agent",
+      "name": "Agente IA — 1012Delivery",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [4400, 200],
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.promptParaIA }}",
+        "hasOutputParser": false,
+        "options": {
+          "systemMessage": "Eres el asistente virtual de 1012Entrega, una empresa de mensajería y domicilios en Valledupar, Colombia.\n\nTu personalidad:\n- Amable, cálido y coloquial (tuteas al cliente)\n- Eficiente: respuestas cortas y claras\n- Honesto: si no sabes algo, lo dices\n- Nunca prometes tiempos exactos sin confirmar con el mensajero\n\nCÓMO FUNCIONAN LOS PEDIDOS:\nLos pedidos se hacen ÚNICAMENTE a través del formulario web. Cuando alguien quiera pedir un domicilio, envíale este link:\nhttps://1012rastreo.1012studiocreativo.com/solicitar\nAllí el cliente llena todos los datos (recogida, entrega, qué envía, etc.) y nosotros asignamos un mensajero.\nNUNCA pidas datos del pedido por WhatsApp. Siempre redirige al formulario.\n\nPara qué SÍ sirve este WhatsApp:\n- Responder preguntas sobre tarifas, horarios y cobertura\n- Informar el estado de un pedido que ya fue solicitado\n- Atender quejas o reclamos\n- Aclarar dudas generales del servicio\n\nTarifas base (Valledupar):\n- Zona norte/centro: $5.000 COP\n- Zona sur/periférica: $7.000 - $9.000 COP\n- Municipios cercanos (≤30km): $10.000 - $15.000 COP\n- Tarifas especiales: se coordinan directamente\n\nHorario: Lunes a Sábado 7am - 9pm. Domingos 8am - 6pm.\n\nSi el cliente pregunta por el estado de su pedido o quiere rastrear su mensajero:\n- Si en el contexto aparece un LINK DE RASTREO EN TIEMPO REAL, envíaselo exactamente como está.\n- El link luce así: https://1012rastreo.1012studiocreativo.com/track/XXXXXXXX\n- No inventes ni modifiques el link.\n- Si no tiene pedido activo, dile que puede solicitar uno en: https://1012rastreo.1012studiocreativo.com/solicitar\n\nRespuestas siempre en español colombiano coloquial. Máximo 3 líneas por respuesta.\nNunca uses markdown, listas con guiones ni asteriscos — solo texto plano.",
+          "maxIterations": 5
+        }
+      },
+      "notes": "Claude Sonnet procesa el mensaje. Conectar: lmChatAnthropic + memoryBufferWindow"
+    },
+
+    {
+      "id": "node-claude",
+      "name": "Claude Sonnet",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [4400, 400],
+      "parameters": {
+        "model": "claude-sonnet-4-5",
+        "options": {
+          "temperature": 0.4,
+          "maxTokens": 500
+        }
+      },
+      "credentials": { "anthropicApi": { "id": "anthropic-credential-id", "name": "Anthropic 1012" } }
+    },
+
+    {
+      "id": "node-memory",
+      "name": "Memoria Conversación",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [4600, 400],
+      "parameters": {
+        "sessionKey": "={{ $('Preparar Contexto para IA').item.json.phone }}",
+        "contextWindowLength": 10
+      },
+      "notes": "Mantiene el historial de los últimos 10 mensajes por número de teléfono."
+    },
+
+    {
+      "id": "node-enviar-ycloud",
+      "name": "Enviar Respuesta por WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [4620, 200],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.ycloud.com/v2/whatsapp/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-API-Key",    "value": "={{ $vars.YCLOUD_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"from\": \"{{ $vars.YCLOUD_PHONE_NUMBER }}\",\n  \"to\": \"{{ $('Preparar Contexto para IA').item.json.phone }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"{{ $json.output.replace(/\"/g, '\\\\\"') }}\"\n  }\n}",
+        "options": {}
+      },
+      "notes": "Envía la respuesta al cliente.\nVariables requeridas en n8n:\n- YCLOUD_API_KEY\n- YCLOUD_PHONE_NUMBER (el número de 1012Delivery en formato 573XXXXXXXXX)"
+    }
+
+  ],
+
+  "connections": {
+    "Webhook YCloud": {
+      "main": [[{ "node": "¿Es mensaje entrante?", "type": "main", "index": 0 }]]
+    },
+    "¿Es mensaje entrante?": {
+      "main": [
+        [{ "node": "Extraer Datos del Mensaje", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Extraer Datos del Mensaje": {
+      "main": [[{ "node": "Buscar Cliente en Supabase", "type": "main", "index": 0 }]]
+    },
+    "Buscar Cliente en Supabase": {
+      "main": [[{ "node": "Combinar Contexto", "type": "main", "index": 0 }]]
+    },
+    "Combinar Contexto": {
+      "main": [[{ "node": "Buffer: Guardar Mensaje", "type": "main", "index": 0 }]]
+    },
+    "Buffer: Guardar Mensaje": {
+      "main": [[{ "node": "Buffer: Activar Lock", "type": "main", "index": 0 }]]
+    },
+    "Buffer: Activar Lock": {
+      "main": [[{ "node": "Esperar 5 segundos", "type": "main", "index": 0 }]]
+    },
+    "Esperar 5 segundos": {
+      "main": [[{ "node": "Buffer: Verificar Lock", "type": "main", "index": 0 }]]
+    },
+    "Buffer: Verificar Lock": {
+      "main": [[{ "node": "¿Soy el ganador?", "type": "main", "index": 0 }]]
+    },
+    "¿Soy el ganador?": {
+      "main": [
+        [{ "node": "Buffer: Obtener Mensajes", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Buffer: Obtener Mensajes": {
+      "main": [[{ "node": "Buffer: Limpiar Buffer", "type": "main", "index": 0 }]]
+    },
+    "Buffer: Limpiar Buffer": {
+      "main": [[{ "node": "Buffer: Limpiar Lock", "type": "main", "index": 0 }]]
+    },
+    "Buffer: Limpiar Lock": {
+      "main": [[{ "node": "Agrupar y Clasificar Mensajes", "type": "main", "index": 0 }]]
+    },
+    "Agrupar y Clasificar Mensajes": {
+      "main": [[{ "node": "¿Tiene Audio?", "type": "main", "index": 0 }]]
+    },
+    "¿Tiene Audio?": {
+      "main": [
+        [{ "node": "Descargar Audio de YCloud", "type": "main", "index": 0 }],
+        [{ "node": "Formatear Solo Texto",       "type": "main", "index": 0 }]
+      ]
+    },
+    "Descargar Audio de YCloud": {
+      "main": [[{ "node": "Transcribir con Whisper", "type": "main", "index": 0 }]]
+    },
+    "Transcribir con Whisper": {
+      "main": [[{ "node": "Combinar Texto + Transcripción", "type": "main", "index": 0 }]]
+    },
+    "Combinar Texto + Transcripción": {
+      "main": [[{ "node": "Unir Rutas", "type": "main", "index": 0 }]]
+    },
+    "Formatear Solo Texto": {
+      "main": [[{ "node": "Unir Rutas", "type": "main", "index": 1 }]]
+    },
+    "Unir Rutas": {
+      "main": [[{ "node": "Preparar Contexto para IA", "type": "main", "index": 0 }]]
+    },
+    "Preparar Contexto para IA": {
+      "main": [[{ "node": "Agente IA — 1012Delivery", "type": "main", "index": 0 }]]
+    },
+    "Agente IA — 1012Delivery": {
+      "main": [[{ "node": "Enviar Respuesta por WhatsApp", "type": "main", "index": 0 }]]
+    },
+    "Claude Sonnet": {
+      "ai_languageModel": [[{ "node": "Agente IA — 1012Delivery", "type": "ai_languageModel", "index": 0 }]]
+    },
+    "Memoria Conversación": {
+      "ai_memory": [[{ "node": "Agente IA — 1012Delivery", "type": "ai_memory", "index": 0 }]]
+    }
+  },
+
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+
+  "active": false,
+  "tags": ["whatsapp", "1012delivery", "chatbot"]
+}
