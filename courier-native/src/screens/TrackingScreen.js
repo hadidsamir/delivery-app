@@ -8,6 +8,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '../lib/supabase'
 import { BACKGROUND_LOCATION_TASK } from '../lib/backgroundTask'
 
+const BACKEND_URL = 'https://delivery-app-production-9c98.up.railway.app'
+
 export default function TrackingScreen({ route, navigation }) {
   // Validar que llegaron los parámetros requeridos
   const order   = route.params?.order
@@ -104,12 +106,25 @@ export default function TrackingScreen({ route, navigation }) {
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Tiempo de espera agotado. Revisa tu conexión.')), 10000)
       )
-      const result = await Promise.race([
-        supabase.from('orders').update({ status: 'entregado' }).eq('id', order.id),
-        timeoutPromise,
-      ])
 
-      if (result.error) throw result.error
+      // Llamar al backend (no Supabase directamente) para que:
+      // 1. Guarde delivered_at y actualice el status
+      // 2. Emita evento Socket.io al cliente en tiempo real
+      // 3. Active la expiración del link de tracking
+      const fetchPromise = fetch(`${BACKEND_URL}/api/order/${order.id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'entregado' }),
+      }).then(async res => {
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          throw new Error(err.error || `Error ${res.status}`)
+        }
+        return res.json()
+      })
+
+      await Promise.race([fetchPromise, timeoutPromise])
+
       if (isMounted.current) navigation.replace('MainTabs')
     } catch (err) {
       console.error('[markDelivered]', err.message)

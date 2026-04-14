@@ -623,8 +623,8 @@ function startOrdersListener() {
 
 // ── SOPORTE WHATSAPP: endpoints para escalación a humano ──────────────────────
 
-const YCLOUD_API_KEY = 'ceec3e2c42136612f530e089ff50eb13';
-const YCLOUD_FROM    = '573218411520';
+const YCLOUD_API_KEY = process.env.YCLOUD_API_KEY || 'ceec3e2c42136612f530e089ff50eb13';
+const YCLOUD_FROM    = process.env.YCLOUD_FROM    || '573218411520';
 
 // Enviar mensaje WhatsApp via YCloud
 async function sendWhatsApp(to, body) {
@@ -763,7 +763,7 @@ app.post('/api/support/escalate', async (req, res) => {
     const nombre  = display_name || phone;
     const motivo  = reason || 'Solicitado por cliente';
     const resumen = summary ? `\n\nResumen: ${summary}` : '';
-    await sendWhatsApp('573151169226',
+    await sendWhatsApp(process.env.ADMIN_WHATSAPP || '573151169226',
       `⚠️ *Atención requerida*\n\n` +
       `El cliente *${nombre}* (${phone}) necesita hablar con un agente humano.\n` +
       `Motivo: ${motivo}${resumen}\n\n` +
