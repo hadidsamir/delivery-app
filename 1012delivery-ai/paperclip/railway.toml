@@ -4,7 +4,7 @@
 
 [build]
 builder = "nixpacks"
-buildCommand = "npm install -g pnpm@9.15.4 --force && pnpm install && pnpm --filter @paperclipai/ui build && cp -r ui/dist server/ui-dist && pnpm --filter @paperclipai/plugin-sdk build && pnpm --filter @paperclipai/shared build && pnpm --filter @paperclipai/db build && pnpm --filter @paperclipai/adapter-utils build"
+buildCommand = "corepack enable && corepack prepare pnpm@9.15.4 --activate && pnpm install && pnpm --filter @paperclipai/ui build && cp -r ui/dist server/ui-dist && pnpm --filter @paperclipai/plugin-sdk build && pnpm --filter @paperclipai/shared build && pnpm --filter @paperclipai/db build && pnpm --filter @paperclipai/adapter-utils build"
 
 [deploy]
 startCommand = "cd server && node -e \"require('tsx/esm'); import('./src/index.ts')\" || node dist/index.js"
