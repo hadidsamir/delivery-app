@@ -295,6 +295,20 @@ app.post('/api/location', locationLimiter, async (req, res) => {
 
   const updated_at = new Date().toISOString();
 
+  // R-02: Verificar que el mensajero está asignado a este pedido
+  const { data: orderCheck, error: orderCheckError } = await supabase
+    .from('orders')
+    .select('courier_id')
+    .eq('id', order_id)
+    .single();
+
+  if (orderCheckError || !orderCheck) {
+    return res.status(404).json({ error: 'Pedido no encontrado' });
+  }
+  if (orderCheck.courier_id !== courier_id) {
+    return res.status(403).json({ error: 'No autorizado para este pedido' });
+  }
+
   // Emitir ubicación vía WebSocket inmediatamente (no esperar DB)
   io.to(`order_${order_id}`).emit('location:update', { latitude: lat, longitude: lng, updated_at });
 
@@ -329,7 +343,7 @@ app.post('/api/location', locationLimiter, async (req, res) => {
 // ── PUT /api/order/:id/status ──────────────────────────────────────────────────
 app.put('/api/order/:id/status', async (req, res) => {
   const { id } = req.params;
-  const { status } = req.body;
+  const { status, courier_id } = req.body;
 
   if (!isValidUUID(id)) {
     return res.status(400).json({ error: 'ID de pedido inválido' });
@@ -338,6 +352,25 @@ app.put('/api/order/:id/status', async (req, res) => {
   const validStatuses = ['pendiente', 'en_camino', 'entregado', 'cancelado'];
   if (!validStatuses.includes(status)) {
     return res.status(400).json({ error: `Status inválido. Debe ser: ${validStatuses.join(', ')}` });
+  }
+
+  // R-01: Si viene courier_id, verificar que es el mensajero asignado
+  if (courier_id) {
+    if (!isValidUUID(courier_id)) {
+      return res.status(400).json({ error: 'courier_id inválido' });
+    }
+    const { data: orderCheck } = await supabase
+      .from('orders')
+      .select('courier_id')
+      .eq('id', id)
+      .single();
+
+    if (!orderCheck) {
+      return res.status(404).json({ error: 'Pedido no encontrado' });
+    }
+    if (orderCheck.courier_id !== courier_id) {
+      return res.status(403).json({ error: 'No autorizado para modificar este pedido' });
+    }
   }
 
   const updateData = { status };

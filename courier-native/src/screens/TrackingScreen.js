@@ -114,7 +114,7 @@ export default function TrackingScreen({ route, navigation }) {
       const fetchPromise = fetch(`${BACKEND_URL}/api/order/${order.id}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'entregado' }),
+        body: JSON.stringify({ status: 'entregado', courier_id: courier.id }),
       }).then(async res => {
         if (!res.ok) {
           const err = await res.json().catch(() => ({}))
