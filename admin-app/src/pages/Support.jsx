@@ -66,8 +66,28 @@ function StatusBadge({ human }) {
   )
 }
 
+/* ── SVG tails (forma exacta de WhatsApp) ────────────────────────────────────── */
+function TailIn({ color = '#ffffff' }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 13" width="8" height="13"
+      style={{ position:'absolute', bottom:0, left:-8, display:'block' }}>
+      <path opacity=".13" d="M5.188 1H0v11.193l6.467-8.625C7.526 2.156 6.958 1 5.188 1z"/>
+      <path fill={color} d="M5.188 0H0v11.193l6.467-8.625C7.526 1.156 6.958 0 5.188 0z"/>
+    </svg>
+  )
+}
+function TailOut({ color = '#F97316' }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 13" width="8" height="13"
+      style={{ position:'absolute', bottom:0, right:-8, display:'block', transform:'scaleX(-1)' }}>
+      <path opacity=".13" d="M5.188 1H0v11.193l6.467-8.625C7.526 2.156 6.958 1 5.188 1z"/>
+      <path fill={color} d="M5.188 0H0v11.193l6.467-8.625C7.526 1.156 6.958 0 5.188 0z"/>
+    </svg>
+  )
+}
+
 /* ── Burbuja de mensaje ──────────────────────────────────────────────────────── */
-function MessageBubble({ msg }) {
+function MessageBubble({ msg, dark }) {
   const isOutbound = msg.direction === 'outbound'
   const isBot      = msg.sender   === 'bot'
   const isHuman    = msg.sender   === 'human'
@@ -75,33 +95,43 @@ function MessageBubble({ msg }) {
   if (isOutbound) {
     const bg = isHuman ? '#F97316' : '#3B82F6'
     return (
-      <div className="flex flex-col items-end mb-2 px-3">
+      <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', marginBottom:2, paddingLeft:9, paddingRight:9 }}>
         {isBot && (
-          <span className="text-[10px] text-gray-400 dark:text-gray-500 mb-0.5 mr-2">Bot</span>
+          <span style={{ fontSize:10, color:'#9CA3AF', marginBottom:2, marginRight:10 }}>Bot</span>
         )}
-        <div className="relative max-w-[65%]">
-          {/* Cola derecha */}
-          <span className="wa-tail-out" style={{ '--tail-color': bg }} />
-          <div
-            className="wa-bubble-out px-3 py-2 shadow-sm"
-            style={{ backgroundColor: bg }}
-          >
-            <p className="text-sm whitespace-pre-wrap break-words leading-snug text-white">{msg.body}</p>
-            <p className="text-[11px] text-white/60 text-right mt-1 leading-none">{timeLabel(msg.created_at)}</p>
+        <div style={{ position:'relative', maxWidth:'65%' }}>
+          <TailOut color={bg} />
+          <div style={{
+            backgroundColor: bg,
+            borderRadius: '7.5px 7.5px 7.5px 7.5px',
+            borderBottomRightRadius: 2,
+            padding: '6px 9px 7px 9px',
+            boxShadow: '0 1px 0.5px rgba(0,0,0,.13)',
+            position: 'relative',
+          }}>
+            <p style={{ fontSize:14, color:'#fff', whiteSpace:'pre-wrap', wordBreak:'break-word', lineHeight:1.4, margin:0 }}>{msg.body}</p>
+            <p style={{ fontSize:11, color:'rgba(255,255,255,0.65)', textAlign:'right', marginTop:2, marginBottom:0, lineHeight:1 }}>{timeLabel(msg.created_at)}</p>
           </div>
         </div>
       </div>
     )
   }
 
+  const inBg = dark ? '#202c33' : '#ffffff'
   return (
-    <div className="flex flex-col items-start mb-2 px-3">
-      <div className="relative max-w-[65%]">
-        {/* Cola izquierda */}
-        <span className="wa-tail-in dark:wa-tail-in-dark" />
-        <div className="wa-bubble-in px-3 py-2 shadow-sm bg-white dark:bg-gray-700">
-          <p className="text-sm whitespace-pre-wrap break-words text-gray-800 dark:text-gray-100 leading-snug">{msg.body}</p>
-          <p className="text-[11px] text-gray-400 dark:text-gray-400 mt-1 leading-none">{timeLabel(msg.created_at)}</p>
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', marginBottom:2, paddingLeft:9, paddingRight:9 }}>
+      <div style={{ position:'relative', maxWidth:'65%' }}>
+        <TailIn color={inBg} />
+        <div style={{
+          backgroundColor: inBg,
+          borderRadius: '7.5px 7.5px 7.5px 7.5px',
+          borderBottomLeftRadius: 2,
+          padding: '6px 9px 7px 9px',
+          boxShadow: '0 1px 0.5px rgba(0,0,0,.13)',
+          position: 'relative',
+        }}>
+          <p style={{ fontSize:14, color: dark ? '#e9edef' : '#111b21', whiteSpace:'pre-wrap', wordBreak:'break-word', lineHeight:1.4, margin:0 }}>{msg.body}</p>
+          <p style={{ fontSize:11, color: dark ? '#8696a0' : '#667781', marginTop:2, marginBottom:0, lineHeight:1 }}>{timeLabel(msg.created_at)}</p>
         </div>
       </div>
     </div>
@@ -486,7 +516,7 @@ export default function Support() {
                   groupByDate(activeSession.messages).map(item =>
                     item.type === 'sep'
                       ? <DateSeparator key={item.key} label={item.label} />
-                      : <MessageBubble key={item.key} msg={item.msg} />
+                      : <MessageBubble key={item.key} msg={item.msg} dark={dark} />
                   )
                 )}
                 <div ref={messagesEndRef} />
@@ -548,42 +578,8 @@ export default function Support() {
           background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
         }
 
-        /* ── Burbujas WhatsApp ── */
-        .wa-bubble-out {
-          border-radius: 7.5px 7.5px 2px 7.5px;
-          position: relative;
-        }
-        .wa-bubble-in {
-          border-radius: 7.5px 7.5px 7.5px 2px;
-          position: relative;
-        }
-
-        /* Cola saliente (derecha) */
-        .wa-tail-out {
-          position: absolute;
-          bottom: 0;
-          right: -8px;
-          width: 0;
-          height: 0;
-          border-style: solid;
-          border-width: 0 0 10px 10px;
-          border-color: transparent transparent var(--tail-color, #F97316) transparent;
-        }
-
-        /* Cola entrante (izquierda) */
-        .wa-tail-in {
-          position: absolute;
-          bottom: 0;
-          left: -8px;
-          width: 0;
-          height: 0;
-          border-style: solid;
-          border-width: 0 10px 10px 0;
-          border-color: transparent white transparent transparent;
-        }
-        .dark .wa-tail-in {
-          border-color: transparent #374151 transparent transparent;
-        }
+        /* espacio entre grupos de mensajes de distinto sender */
+        .wa-msg-group-gap { margin-top: 6px; }
       `}</style>
     </div>
   )
