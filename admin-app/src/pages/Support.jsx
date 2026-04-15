@@ -75,7 +75,7 @@ function MessageBubble({ msg }) {
   if (isOutbound) {
     const bg = isHuman ? '#F97316' : '#3B82F6'
     return (
-      <div className="flex flex-col items-end mb-1 px-3">
+      <div className="flex flex-col items-end mb-2 px-3">
         {isBot && (
           <span className="text-[10px] text-gray-400 dark:text-gray-500 mb-0.5 mr-2">Bot</span>
         )}
@@ -95,7 +95,7 @@ function MessageBubble({ msg }) {
   }
 
   return (
-    <div className="flex flex-col items-start mb-1 px-3">
+    <div className="flex flex-col items-start mb-2 px-3">
       <div className="relative max-w-[65%]">
         {/* Cola izquierda */}
         <span className="wa-tail-in dark:wa-tail-in-dark" />
@@ -474,7 +474,7 @@ export default function Support() {
               )}
 
               {/* Mensajes */}
-              <div className="flex-1 overflow-y-auto py-4 wa-chat-bg dark:wa-chat-bg-dark">
+              <div className="flex-1 overflow-y-auto py-3 wa-chat-bg dark:wa-chat-bg-dark">
                 {(!activeSession.messages || activeSession.messages.length === 0) ? (
                   <div className="flex flex-col items-center justify-center h-full text-gray-400">
                     <svg className="w-10 h-10 mb-3 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
