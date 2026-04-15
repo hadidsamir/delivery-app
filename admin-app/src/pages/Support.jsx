@@ -73,26 +73,36 @@ function MessageBubble({ msg }) {
   const isHuman    = msg.sender   === 'human'
 
   if (isOutbound) {
+    const bg = isHuman ? '#F97316' : '#3B82F6'
     return (
-      <div className="flex flex-col items-end mb-1.5 px-4">
+      <div className="flex flex-col items-end mb-1 px-3">
         {isBot && (
-          <span className="text-[10px] text-gray-400 dark:text-gray-500 mb-0.5 mr-1">Bot</span>
+          <span className="text-[10px] text-gray-400 dark:text-gray-500 mb-0.5 mr-2">Bot</span>
         )}
-        <div className={`max-w-[68%] px-4 py-2.5 rounded-2xl rounded-br-md shadow-sm ${
-          isHuman ? 'bg-orange-500 text-white' : 'bg-gray-400 dark:bg-gray-600 text-white'
-        }`}>
-          <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{msg.body}</p>
-          <p className="text-[10px] text-white/60 text-right mt-1 leading-none">{timeLabel(msg.created_at)}</p>
+        <div className="relative max-w-[65%]">
+          {/* Cola derecha */}
+          <span className="wa-tail-out" style={{ '--tail-color': bg }} />
+          <div
+            className="wa-bubble-out px-3 py-2 shadow-sm"
+            style={{ backgroundColor: bg }}
+          >
+            <p className="text-sm whitespace-pre-wrap break-words leading-snug text-white">{msg.body}</p>
+            <p className="text-[11px] text-white/60 text-right mt-1 leading-none">{timeLabel(msg.created_at)}</p>
+          </div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="flex items-end gap-2 mb-1.5 px-4">
-      <div className="max-w-[68%] bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 px-4 py-2.5 rounded-2xl rounded-bl-md shadow-sm">
-        <p className="text-sm whitespace-pre-wrap break-words text-gray-800 dark:text-gray-100 leading-relaxed">{msg.body}</p>
-        <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1 leading-none">{timeLabel(msg.created_at)}</p>
+    <div className="flex flex-col items-start mb-1 px-3">
+      <div className="relative max-w-[65%]">
+        {/* Cola izquierda */}
+        <span className="wa-tail-in dark:wa-tail-in-dark" />
+        <div className="wa-bubble-in px-3 py-2 shadow-sm bg-white dark:bg-gray-700">
+          <p className="text-sm whitespace-pre-wrap break-words text-gray-800 dark:text-gray-100 leading-snug">{msg.body}</p>
+          <p className="text-[11px] text-gray-400 dark:text-gray-400 mt-1 leading-none">{timeLabel(msg.created_at)}</p>
+        </div>
       </div>
     </div>
   )
@@ -101,10 +111,10 @@ function MessageBubble({ msg }) {
 /* ── Separador de fecha ──────────────────────────────────────────────────────── */
 function DateSeparator({ label }) {
   return (
-    <div className="flex items-center gap-3 my-5 px-4">
-      <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
-      <span className="text-[11px] text-gray-400 dark:text-gray-500 font-medium whitespace-nowrap capitalize">{label}</span>
-      <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+    <div className="flex justify-center my-4 px-4">
+      <span className="bg-white/80 dark:bg-gray-700/80 text-gray-500 dark:text-gray-300 text-[11px] font-medium px-3 py-1 rounded-full shadow-sm capitalize backdrop-blur-sm">
+        {label}
+      </span>
     </div>
   )
 }
@@ -464,7 +474,7 @@ export default function Support() {
               )}
 
               {/* Mensajes */}
-              <div className="flex-1 overflow-y-auto py-4 bg-gray-50 dark:bg-gray-950">
+              <div className="flex-1 overflow-y-auto py-4 wa-chat-bg dark:wa-chat-bg-dark">
                 {(!activeSession.messages || activeSession.messages.length === 0) ? (
                   <div className="flex flex-col items-center justify-center h-full text-gray-400">
                     <svg className="w-10 h-10 mb-3 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -526,6 +536,53 @@ export default function Support() {
         @keyframes slideIn {
           from { opacity: 0; transform: translateX(16px); }
           to   { opacity: 1; transform: translateX(0); }
+        }
+
+        /* ── Wallpaper WhatsApp ── */
+        .wa-chat-bg {
+          background-color: #e8ddd4;
+          background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23c9b8a8' fill-opacity='0.25'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+        }
+        .wa-chat-bg-dark, .dark .wa-chat-bg {
+          background-color: #0d1418;
+          background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+        }
+
+        /* ── Burbujas WhatsApp ── */
+        .wa-bubble-out {
+          border-radius: 7.5px 7.5px 2px 7.5px;
+          position: relative;
+        }
+        .wa-bubble-in {
+          border-radius: 7.5px 7.5px 7.5px 2px;
+          position: relative;
+        }
+
+        /* Cola saliente (derecha) */
+        .wa-tail-out {
+          position: absolute;
+          bottom: 0;
+          right: -8px;
+          width: 0;
+          height: 0;
+          border-style: solid;
+          border-width: 0 0 10px 10px;
+          border-color: transparent transparent var(--tail-color, #F97316) transparent;
+        }
+
+        /* Cola entrante (izquierda) */
+        .wa-tail-in {
+          position: absolute;
+          bottom: 0;
+          left: -8px;
+          width: 0;
+          height: 0;
+          border-style: solid;
+          border-width: 0 10px 10px 0;
+          border-color: transparent white transparent transparent;
+        }
+        .dark .wa-tail-in {
+          border-color: transparent #374151 transparent transparent;
         }
       `}</style>
     </div>
