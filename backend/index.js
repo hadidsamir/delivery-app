@@ -663,11 +663,16 @@ const YCLOUD_FROM    = process.env.YCLOUD_FROM    || '573218411520';
 async function sendWhatsApp(to, body) {
   const phone = String(to).replace(/\D/g, '');
   const normalized = phone.startsWith('57') ? phone : `57${phone}`;
+  console.log(`[YCloud] Enviando a ${normalized} desde ${YCLOUD_FROM}, key: ${YCLOUD_API_KEY?.slice(0,8)}...`);
   const res = await fetch('https://api.ycloud.com/v2/whatsapp/messages/sendDirectly', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-API-Key': YCLOUD_API_KEY },
     body: JSON.stringify({ from: YCLOUD_FROM, to: normalized, type: 'text', text: { body } }),
   });
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error(`[YCloud] Error ${res.status}: ${errText}`);
+  }
   return res.ok;
 }
 
