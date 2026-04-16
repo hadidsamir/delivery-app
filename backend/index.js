@@ -239,10 +239,11 @@ app.get('/api/order/:token', async (req, res) => {
     return res.status(404).json({ error: 'Pedido no encontrado' });
   }
 
-  // Verificar expiración: 1 hora después de entregado
+  // Verificar expiración: 2 horas después de entregado
+  const TRACKING_EXPIRY_HOURS = 2;
   if (order.status === 'entregado' && order.delivered_at) {
     const horasTranscurridas = (Date.now() - new Date(order.delivered_at).getTime()) / 1000 / 3600;
-    if (horasTranscurridas >= 1) {
+    if (horasTranscurridas >= TRACKING_EXPIRY_HOURS) {
       return res.status(410).json({ error: 'El link de rastreo ha expirado' });
     }
   }
@@ -310,25 +311,13 @@ app.post('/api/location', locationLimiter, async (req, res) => {
   io.to(`order_${order_id}`).emit('location:update', { latitude: lat, longitude: lng, updated_at });
 
   try {
-    const { data: existing } = await supabase
+    const { error } = await supabase
       .from('courier_locations')
-      .select('id')
-      .eq('order_id', order_id)
-      .limit(1)
-      .single();
-
-    if (existing) {
-      const { error } = await supabase
-        .from('courier_locations')
-        .update({ courier_id, latitude: lat, longitude: lng, updated_at })
-        .eq('order_id', order_id);
-      if (error) console.error('[location] Error actualizando ubicación:', error.message);
-    } else {
-      const { error } = await supabase
-        .from('courier_locations')
-        .insert({ courier_id, order_id, latitude: lat, longitude: lng, updated_at });
-      if (error) console.error('[location] Error insertando ubicación:', error.message);
-    }
+      .upsert(
+        { courier_id, order_id, latitude: lat, longitude: lng, updated_at },
+        { onConflict: 'order_id' }
+      );
+    if (error) console.error('[location] Error guardando ubicación:', error.message);
   } catch (err) {
     console.error('[location] Error guardando en DB:', err.message);
     // No retornar error al mensajero — la ubicación ya fue emitida por WebSocket

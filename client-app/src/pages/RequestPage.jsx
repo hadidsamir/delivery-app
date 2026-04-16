@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useMemo } from 'react'
 import { GoogleMap, useJsApiLoader, Marker } from '@react-google-maps/api'
 import AddressAutocomplete from '../components/AddressAutocomplete'
 
@@ -76,8 +76,8 @@ function ConfirmationView({ orderId }) {
 export default function RequestPage() {
   const { isLoaded } = useJsApiLoader({ googleMapsApiKey: MAPS_KEY, libraries: LIBRARIES })
 
-  // Número de WhatsApp del cliente (viene del bot via ?wp=...)
-  const whatsappPhone = new URLSearchParams(window.location.search).get('wp') || null
+  // Número de WhatsApp del cliente (viene del bot via ?wp=...) — solo se evalúa una vez
+  const whatsappPhone = useMemo(() => new URLSearchParams(window.location.search).get('wp') || null, [])
 
   // Campos del formulario
   const [pickupAddress,   setPickupAddress]   = useState('')

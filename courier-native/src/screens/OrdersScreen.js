@@ -53,6 +53,19 @@ export default function OrdersScreen({ navigation }) {
       const stored = await AsyncStorage.getItem('courier')
       if (!stored) { navigation.getParent()?.replace('Login'); return }
       courierData = JSON.parse(stored)
+
+      // Verificar que el mensajero sigue activo en Supabase
+      const { data: fresh } = await supabase
+        .from('couriers')
+        .select('id, is_active')
+        .eq('id', courierData.id)
+        .single()
+      if (!fresh || !fresh.is_active) {
+        await AsyncStorage.removeItem('courier')
+        navigation.getParent()?.replace('Login')
+        return
+      }
+
       setCourier(courierData)
       await setupNotifications()
       fetchOrders(courierData.id)

@@ -148,8 +148,8 @@ export default function Dashboard() {
 
     subscribe()
 
-    // Polling cada 5 s — garantiza actualización aunque Realtime falle o se pierda un evento
-    pollTimer = setInterval(() => { if (active) fetchData(true) }, 5000)
+    // Polling cada 30 s — respaldo si Realtime falla (no reemplaza eventos en tiempo real)
+    pollTimer = setInterval(() => { if (active) fetchData(true) }, 30000)
 
     // Al volver a la pestaña: solo refrescar datos, NO recrear el canal.
     // Recrear el canal en cada visibilitychange destruía la conexión WebSocket
