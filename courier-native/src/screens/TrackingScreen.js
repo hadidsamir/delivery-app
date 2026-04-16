@@ -154,9 +154,21 @@ export default function TrackingScreen({ route, navigation }) {
         {/* Detalle del pedido */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>DETALLE DEL PEDIDO</Text>
+          {!!order.pickup_address && (
+            <View style={styles.row}>
+              <Text style={styles.icon}>📦</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 10, color: '#9CA3AF', fontWeight: '700', letterSpacing: 0.5, marginBottom: 2 }}>RECOGER EN</Text>
+                <Text style={styles.rowText}>{order.pickup_address}</Text>
+              </View>
+            </View>
+          )}
           <View style={styles.row}>
             <Text style={styles.icon}>📍</Text>
-            <Text style={styles.rowText}>{order.delivery_address}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 10, color: '#9CA3AF', fontWeight: '700', letterSpacing: 0.5, marginBottom: 2 }}>ENTREGAR EN</Text>
+              <Text style={styles.rowText}>{order.delivery_address}</Text>
+            </View>
           </View>
           <View style={styles.row}>
             <Text style={styles.icon}>👤</Text>
