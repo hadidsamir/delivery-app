@@ -792,7 +792,8 @@ app.post('/api/support/escalate', async (req, res) => {
     const nombre  = display_name || phone;
     const motivo  = reason || 'Solicitado por cliente';
     const resumen = summary ? `\n\nResumen: ${summary}` : '';
-    await sendWhatsApp(process.env.ADMIN_WHATSAPP || '573151169226',
+    if (!process.env.ADMIN_WHATSAPP) throw new Error('ADMIN_WHATSAPP no configurado');
+    await sendWhatsApp(process.env.ADMIN_WHATSAPP,
       `⚠️ *Atención requerida*\n\n` +
       `El cliente *${nombre}* (${phone}) necesita hablar con un agente humano.\n` +
       `Motivo: ${motivo}${resumen}\n\n` +

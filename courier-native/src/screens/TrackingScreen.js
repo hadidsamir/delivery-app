@@ -18,7 +18,6 @@ export default function TrackingScreen({ route, navigation }) {
   const isMounted   = useRef(true)
   const stoppingRef = useRef(false)
 
-  const isMounted   = useRef(true)
   // Guard: si no llegaron params, redirigir (después de los hooks)
   useEffect(() => {
     if (!order || !courier) navigation.replace('MainTabs')

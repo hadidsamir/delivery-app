@@ -5,7 +5,8 @@ import Logo from '../components/Logo'
 import ThemeToggle from '../components/ThemeToggle'
 import { useTheme } from '../hooks/useTheme'
 
-const CLIENT_URL = import.meta.env.VITE_CLIENT_APP_URL || 'http://localhost:5175'
+const CLIENT_URL  = import.meta.env.VITE_CLIENT_APP_URL  || 'http://localhost:5175'
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
 
 // Función switch en lugar de objetos separados.
 // Con objetos JS, el minificador de Vite puede reordenar claves y hacer que
@@ -212,30 +213,36 @@ export default function Dashboard() {
     const orderId = assignOrder.id
     const selectedCourier = couriers.find(c => c.id === assignCourierId)
     const currentStatus = assignOrder.status
-
-    // Al reasignar un pedido rechazado (sin mensajero), volver a 'pendiente'
     const newStatus = currentStatus === 'entregado' ? currentStatus : 'pendiente'
 
-    const { error } = await supabase
-      .from('orders')
-      .update({ courier_id: assignCourierId, status: newStatus })
-      .eq('id', orderId)
+    try {
+      // Primero asignar courier_id directo en Supabase (el backend no tiene endpoint para esto)
+      const { error } = await supabase
+        .from('orders')
+        .update({ courier_id: assignCourierId })
+        .eq('id', orderId)
+      if (error) throw error
 
-    if (error) {
-      alert('Error al asignar mensajero: ' + error.message)
+      // Luego cambiar status vía backend para disparar Socket.io y FCM
+      const res = await fetch(`${BACKEND_URL}/api/order/${orderId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus, admin: true }),
+      })
+      if (!res.ok) throw new Error('Error al actualizar status')
+
+      setOrders(prev => prev.map(o =>
+        o.id === orderId
+          ? { ...o, courier_id: assignCourierId, status: newStatus, couriers: { name: selectedCourier?.name || '' } }
+          : o
+      ))
+      setAssignOrder(null)
+      setAssignCourierId('')
+    } catch (err) {
+      alert('Error al asignar mensajero: ' + err.message)
+    } finally {
       setAssigning(false)
-      return
     }
-
-    // Actualización optimista tras confirmar Supabase
-    setOrders(prev => prev.map(o =>
-      o.id === orderId
-        ? { ...o, courier_id: assignCourierId, status: newStatus, couriers: { name: selectedCourier?.name || '' } }
-        : o
-    ))
-    setAssignOrder(null)
-    setAssignCourierId('')
-    setAssigning(false)
   }
 
   return (
