@@ -7,27 +7,26 @@ import * as Location from 'expo-location'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '../lib/supabase'
 import { BACKGROUND_LOCATION_TASK } from '../lib/backgroundTask'
-
-const BACKEND_URL = 'https://delivery-app-production-9c98.up.railway.app'
+import { BACKEND_URL } from '../lib/config'
 
 export default function TrackingScreen({ route, navigation }) {
-  // Validar que llegaron los parámetros requeridos
   const order   = route.params?.order
   const courier = route.params?.courier
 
-  if (!order || !courier) {
-    // Params inválidos → volver a la pantalla anterior de forma segura
-    navigation.replace('MainTabs')
-    return null
-  }
-
+  // Hooks siempre al inicio (reglas de React — no retornar antes de hooks)
   const [delivering, setDelivering] = useState(false)
-
   const isMounted   = useRef(true)
   const stoppingRef = useRef(false)
 
+  const isMounted   = useRef(true)
+  // Guard: si no llegaron params, redirigir (después de los hooks)
+  useEffect(() => {
+    if (!order || !courier) navigation.replace('MainTabs')
+  }, [])
+
   // ─── Al montar: iniciar GPS directamente (permisos ya fueron concedidos en OrdersScreen) ──
   useEffect(() => {
+    if (!order || !courier) return
     isMounted.current = true
     stoppingRef.current = false
     startGPS()

@@ -7,8 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { useFocusEffect } from '@react-navigation/native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '../lib/supabase'
-
-const BACKEND_URL = 'https://delivery-app-production-9c98.up.railway.app'
+import { BACKEND_URL } from '../lib/config'
 
 export default function AvailableOrdersScreen({ navigation }) {
   const [orders, setOrders]       = useState([])

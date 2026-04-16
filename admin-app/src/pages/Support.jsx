@@ -232,6 +232,13 @@ export default function Support() {
     return () => clearInterval(interval)
   }, [fetchSessions])
 
+  // Ref para acceder a activePhone y sessions dentro del canal sin recrearlo
+  const activePhoneRef = useRef(activePhone)
+  const sessionsRef    = useRef(sessions)
+  useEffect(() => { activePhoneRef.current = activePhone }, [activePhone])
+  useEffect(() => { sessionsRef.current = sessions }, [sessions])
+
+  // Canal Realtime — se crea UNA sola vez (sin dependencias que cambien)
   useEffect(() => {
     const channel = supabase
       .channel('support-messages')
@@ -240,8 +247,8 @@ export default function Support() {
         setSessions(prev => prev.map(s =>
           s.phone !== msg.phone ? s : { ...s, messages: [...(s.messages || []), msg], updated_at: msg.created_at }
         ))
-        if (msg.phone !== activePhone && msg.sender === 'client') {
-          const session = sessions.find(s => s.phone === msg.phone)
+        if (msg.phone !== activePhoneRef.current && msg.sender === 'client') {
+          const session = sessionsRef.current.find(s => s.phone === msg.phone)
           setNotification({ name: session?.display_name || msg.phone, body: msg.body, phone: msg.phone })
           setTimeout(() => setNotification(null), 5000)
         }
@@ -249,7 +256,7 @@ export default function Support() {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chat_sessions' }, () => fetchSessions())
       .subscribe()
     return () => supabase.removeChannel(channel)
-  }, [activePhone, sessions, fetchSessions])
+  }, []) // Sin dependencias → se crea solo al montar
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })

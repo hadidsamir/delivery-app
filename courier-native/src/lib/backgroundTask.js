@@ -50,7 +50,7 @@ export async function stopAppKeepalive() {
 }
 
 // ─── GPS Background Task ──────────────────────────────────────────────────────
-const BACKEND_URL = 'https://delivery-app-production-9c98.up.railway.app'
+import { BACKEND_URL } from './config'
 
 // Envía la ubicación idle del mensajero (sin entrega activa)
 async function sendIdleLocation(courierId, latitude, longitude) {

@@ -139,17 +139,7 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
-
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin || '*');
-  }
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (req.method === 'OPTIONS') return res.sendStatus(200);
-  next();
-});
+app.set('trust proxy', 1);
 
 app.use(express.json({ limit: '10kb' }));
 
@@ -189,8 +179,12 @@ io.on('connection', (socket) => {
     }
   });
 
-  // El admin se une al room para recibir actualizaciones en tiempo real
-  socket.on('join:admin', () => {
+  // El admin se une al room — verificar token de admin
+  socket.on('join:admin', ({ token } = {}) => {
+    if (token !== process.env.ADMIN_SOCKET_TOKEN) {
+      socket.emit('error:auth', { message: 'Token de admin inválido' });
+      return;
+    }
     socket.join('admin_dashboard');
     console.log(`[socket] admin ${socket.id} se unió a admin_dashboard`);
   });
@@ -688,21 +682,20 @@ async function sendWhatsApp(to, body) {
 // GET /api/support/chats — listar conversaciones escaladas (o todas activas)
 app.get('/api/support/chats', async (req, res) => {
   try {
+    // Una sola query con join en vez de N+1
     const { data: sessions, error } = await supabase
       .from('chat_sessions')
-      .select('*')
-      .order('updated_at', { ascending: false });
+      .select('*, messages:chat_messages(id, phone, direction, sender, body, created_at)')
+      .order('updated_at', { ascending: false })
+      .limit(50);
     if (error) throw error;
 
-    // Para cada sesión traer los últimos 50 mensajes
-    const results = await Promise.all(sessions.map(async (s) => {
-      const { data: messages } = await supabase
-        .from('chat_messages')
-        .select('*')
-        .eq('phone', s.phone)
-        .order('created_at', { ascending: true })
-        .limit(50);
-      return { ...s, messages: messages || [] };
+    // Ordenar mensajes de cada sesión por fecha ascendente y limitar a 50
+    const results = (sessions || []).map(s => ({
+      ...s,
+      messages: (s.messages || [])
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+        .slice(-50),
     }));
 
     res.json(results);
