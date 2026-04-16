@@ -79,9 +79,12 @@ async function sendFCMBroadcast(tokens, title, body, data = {}) {
 }
 
 // ── Supabase ───────────────────────────────────────────────────────────────────
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error('SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY son obligatorios');
+}
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
 // ── Express + HTTP + Socket.io ─────────────────────────────────────────────────
@@ -343,7 +346,7 @@ app.post('/api/location', locationLimiter, async (req, res) => {
 // ── PUT /api/order/:id/status ──────────────────────────────────────────────────
 app.put('/api/order/:id/status', async (req, res) => {
   const { id } = req.params;
-  const { status, courier_id } = req.body;
+  const { status, courier_id, admin } = req.body;
 
   if (!isValidUUID(id)) {
     return res.status(400).json({ error: 'ID de pedido inválido' });
@@ -354,8 +357,11 @@ app.put('/api/order/:id/status', async (req, res) => {
     return res.status(400).json({ error: `Status inválido. Debe ser: ${validStatuses.join(', ')}` });
   }
 
-  // R-01: Si viene courier_id, verificar que es el mensajero asignado
-  if (courier_id) {
+  // R-01: courier_id obligatorio salvo que sea el admin
+  if (!admin) {
+    if (!courier_id) {
+      return res.status(400).json({ error: 'courier_id es obligatorio' });
+    }
     if (!isValidUUID(courier_id)) {
       return res.status(400).json({ error: 'courier_id inválido' });
     }
@@ -656,8 +662,11 @@ function startOrdersListener() {
 
 // ── SOPORTE WHATSAPP: endpoints para escalación a humano ──────────────────────
 
-const YCLOUD_API_KEY = process.env.YCLOUD_API_KEY || 'ceec3e2c42136612f530e089ff50eb13';
-const YCLOUD_FROM    = process.env.YCLOUD_FROM    || '573218411520';
+if (!process.env.YCLOUD_API_KEY || !process.env.YCLOUD_FROM) {
+  throw new Error('YCLOUD_API_KEY y YCLOUD_FROM son obligatorios');
+}
+const YCLOUD_API_KEY = process.env.YCLOUD_API_KEY;
+const YCLOUD_FROM    = process.env.YCLOUD_FROM;
 
 // Enviar mensaje WhatsApp via YCloud
 async function sendWhatsApp(to, body) {
