@@ -474,6 +474,70 @@ app.post('/api/orders/public', publicOrderLimiter, async (req, res) => {
   }
 });
 
+// ── POST /api/orders/whatsapp ─────────────────────────────────────────────────
+// Crea pedido desde el bot de WhatsApp — sin coordenadas ni método de pago obligatorio
+app.post('/api/orders/whatsapp', async (req, res) => {
+  const { pickup_address, delivery_address, client_name, client_phone, whatsapp_phone, description } = req.body;
+
+  if (!pickup_address || !delivery_address) {
+    return res.status(400).json({ error: 'Se requieren dirección de recogida y entrega' });
+  }
+  if (!whatsapp_phone) {
+    return res.status(400).json({ error: 'whatsapp_phone es obligatorio' });
+  }
+
+  try {
+    const { data: order, error: insertError } = await supabase
+      .from('orders')
+      .insert({
+        client_name:      client_name      ? String(client_name).slice(0, 80)      : null,
+        client_phone:     client_phone     ? String(client_phone).slice(0, 20)     : null,
+        pickup_address:   String(pickup_address).slice(0, 300),
+        delivery_address: String(delivery_address).slice(0, 300),
+        whatsapp_phone:   String(whatsapp_phone).slice(0, 20),
+        description:      description ? String(description).slice(0, 500) : null,
+        payment_method:   'efectivo',
+        source:           'whatsapp',
+        status:           'pendiente',
+        courier_id:       null,
+      })
+      .select('id, tracking_token')
+      .single();
+
+    if (insertError || !order) {
+      console.error('[orders/whatsapp] Error insertando:', insertError?.message);
+      return res.status(500).json({ error: 'No se pudo crear el pedido' });
+    }
+
+    // Notificar a mensajeros activos
+    const { data: couriers } = await supabase
+      .from('couriers')
+      .select('push_token')
+      .eq('is_active', true)
+      .not('push_token', 'is', null);
+
+    const tokens = (couriers || []).map(c => c.push_token).filter(Boolean);
+    if (tokens.length > 0) {
+      await sendFCMBroadcast(
+        tokens,
+        '🔔 Nuevo Servicio por WhatsApp',
+        `📍 Recogida: ${String(pickup_address).slice(0, 80)}`,
+        { type: 'nuevo_servicio', orderId: order.id }
+      );
+    }
+
+    io.to('admin_dashboard').emit('order:new_public', { order_id: order.id });
+
+    const trackingUrl = `https://1012rastreo.1012studiocreativo.com/track/${order.tracking_token}`;
+    console.log(`[orders/whatsapp] Pedido creado: ${order.id}`);
+    return res.json({ order_id: order.id, tracking_token: order.tracking_token, tracking_url: trackingUrl });
+
+  } catch (err) {
+    console.error('[orders/whatsapp] Error:', err.message);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
 // ── GET /api/orders/available ─────────────────────────────────────────────────
 // Lista pedidos sin mensajero asignado (para la app del mensajero)
 app.get('/api/orders/available', async (req, res) => {
