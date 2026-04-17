@@ -348,12 +348,16 @@ app.put('/api/order/:id/status', async (req, res) => {
     if (!isValidUUID(courier_id)) {
       return res.status(400).json({ error: 'courier_id inválido' });
     }
-    const { data: orderCheck } = await supabase
+    const { data: orderCheck, error: orderError } = await supabase
       .from('orders')
       .select('courier_id')
       .eq('id', id)
-      .single();
+      .maybeSingle();
 
+    if (orderError) {
+      console.error('[status] Error consultando pedido:', orderError.message);
+      return res.status(500).json({ error: 'Error consultando pedido' });
+    }
     if (!orderCheck) {
       return res.status(404).json({ error: 'Pedido no encontrado' });
     }
@@ -671,20 +675,22 @@ async function sendWhatsApp(to, body) {
 // GET /api/support/chats — listar conversaciones escaladas (o todas activas)
 app.get('/api/support/chats', async (req, res) => {
   try {
-    // Una sola query con join en vez de N+1
     const { data: sessions, error } = await supabase
       .from('chat_sessions')
-      .select('*, messages:chat_messages(id, phone, direction, sender, body, created_at)')
+      .select('*')
       .order('updated_at', { ascending: false })
       .limit(50);
     if (error) throw error;
 
-    // Ordenar mensajes de cada sesión por fecha ascendente y limitar a 50
-    const results = (sessions || []).map(s => ({
-      ...s,
-      messages: (s.messages || [])
-        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-        .slice(-50),
+    // Traer mensajes en paralelo (más eficiente que secuencial)
+    const results = await Promise.all((sessions || []).map(async (s) => {
+      const { data: messages } = await supabase
+        .from('chat_messages')
+        .select('id, phone, direction, sender, body, created_at')
+        .eq('phone', s.phone)
+        .order('created_at', { ascending: true })
+        .limit(50);
+      return { ...s, messages: messages || [] };
     }));
 
     res.json(results);
