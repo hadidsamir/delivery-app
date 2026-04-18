@@ -41,11 +41,9 @@ export default function AvailableOrdersScreen({ navigation }) {
         .channel('available-orders-' + Date.now())
         .on('postgres_changes', {
           event: 'INSERT', schema: 'public', table: 'orders',
-          filter: 'source=eq.cliente',
         }, () => fetchOrders())
         .on('postgres_changes', {
           event: 'UPDATE', schema: 'public', table: 'orders',
-          filter: 'source=eq.cliente',
         }, () => fetchOrders())
         .subscribe()
       return ch

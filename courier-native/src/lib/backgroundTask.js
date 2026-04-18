@@ -207,7 +207,7 @@ export async function checkAvailableOrders(courierId) {
       .select('id, pickup_address, delivery_address, base_amount, payment_method, created_at')
       .is('courier_id', null)
       .eq('status', 'pendiente')
-      .eq('source', 'cliente')
+      .in('source', ['cliente', 'whatsapp'])
 
     if (error || !available?.length) return
 
