@@ -18,7 +18,8 @@ const mapStyles = [
 
 async function geocodeAddress(address) {
   try {
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${MAPS_KEY}`
+    const fullAddress = `${address}, Valledupar, Cesar, Colombia`
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(fullAddress)}&key=${MAPS_KEY}`
     const res  = await fetch(url)
     const data = await res.json()
     if (data.results?.length > 0) {

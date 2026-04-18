@@ -6,7 +6,7 @@ import {
 import * as Location from 'expo-location'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '../lib/supabase'
-import { BACKGROUND_LOCATION_TASK } from '../lib/backgroundTask'
+import { BACKGROUND_LOCATION_TASK, startGpsWatchdog, stopGpsWatchdog } from '../lib/backgroundTask'
 import { BACKEND_URL } from '../lib/config'
 
 export default function TrackingScreen({ route, navigation }) {
@@ -61,19 +61,26 @@ export default function TrackingScreen({ route, navigation }) {
       // - Funciona con permiso "mientras se usa" o "siempre"
       // - No hay diálogos aquí → no hay race conditions
       await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-        accuracy: Location.Accuracy.High,
-        timeInterval: 3000,
+        accuracy: Location.Accuracy.BestForNavigation,
+        timeInterval: 4000,
         distanceInterval: 0,
         foregroundService: {
-          notificationTitle: '1012Delivery - Rastreo activo',
-          notificationBody: 'Compartiendo ubicacion con el cliente',
+          notificationTitle: '1012Delivery · Rastreo activo',
+          notificationBody: 'Compartiendo ubicación con el cliente',
           notificationColor: '#F97316',
+          killServiceOnDestroy: false,         // Android: mantener vivo aunque el usuario cierre la app
         },
         pausesUpdatesAutomatically: false,
         showsBackgroundLocationIndicator: true,
+        activityType: Location.ActivityType.AutomotiveNavigation,
+        deferredUpdatesInterval: 0,
+        deferredUpdatesDistance: 0,
       })
 
       console.log('[TrackingScreen] GPS foreground service iniciado')
+
+      // Iniciar watchdog: si Android mata el GPS, lo reinicia automáticamente
+      startGpsWatchdog(courier.id, order.id)
 
     } catch (err) {
       console.error('[startGPS] Error:', err.message)
@@ -83,6 +90,7 @@ export default function TrackingScreen({ route, navigation }) {
   async function stopGPS() {
     if (stoppingRef.current) return
     stoppingRef.current = true
+    stopGpsWatchdog()
     try {
       const running = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK)
         .catch(() => false)

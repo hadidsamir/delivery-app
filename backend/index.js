@@ -486,7 +486,26 @@ app.post('/api/orders/whatsapp', async (req, res) => {
     return res.status(400).json({ error: 'whatsapp_phone es obligatorio' });
   }
 
+  // Geocodificar dirección de entrega para mostrar en mapa correctamente (Valledupar)
+  async function geocodeValledupar(address) {
+    try {
+      const MAPS_KEY = process.env.GOOGLE_MAPS_KEY;
+      if (!MAPS_KEY) return { lat: null, lng: null };
+      const full = `${address}, Valledupar, Cesar, Colombia`;
+      const url  = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(full)}&key=${MAPS_KEY}`;
+      const res  = await fetch(url);
+      const data = await res.json();
+      if (data.results?.[0]) {
+        const { lat, lng } = data.results[0].geometry.location;
+        return { lat, lng };
+      }
+    } catch {}
+    return { lat: null, lng: null };
+  }
+
   try {
+    const deliveryCoords = await geocodeValledupar(delivery_address);
+
     const { data: order, error: insertError } = await supabase
       .from('orders')
       .insert({
@@ -494,6 +513,8 @@ app.post('/api/orders/whatsapp', async (req, res) => {
         client_phone:     client_phone     ? String(client_phone).slice(0, 20)     : null,
         pickup_address:   String(pickup_address).slice(0, 300),
         delivery_address: String(delivery_address).slice(0, 300),
+        delivery_lat:     deliveryCoords.lat,
+        delivery_lng:     deliveryCoords.lng,
         whatsapp_phone:   String(whatsapp_phone).slice(0, 20),
         description:      description ? String(description).slice(0, 500) : null,
         payment_method:   'efectivo',
@@ -509,24 +530,13 @@ app.post('/api/orders/whatsapp', async (req, res) => {
       return res.status(500).json({ error: 'No se pudo crear el pedido' });
     }
 
-    // Notificar a mensajeros activos
-    const { data: couriers } = await supabase
-      .from('couriers')
-      .select('push_token')
-      .eq('is_active', true)
-      .not('push_token', 'is', null);
-
-    const tokens = (couriers || []).map(c => c.push_token).filter(Boolean);
-    if (tokens.length > 0) {
-      await sendFCMBroadcast(
-        tokens,
-        '🔔 Nuevo Servicio por WhatsApp',
-        `📍 Recogida: ${String(pickup_address).slice(0, 80)}`,
-        { type: 'nuevo_servicio', orderId: order.id }
-      );
-    }
-
+    // Notificar en tiempo real al dashboard admin y a los mensajeros
     io.to('admin_dashboard').emit('order:new_public', { order_id: order.id });
+    io.emit('order:available', {
+      order_id:        order.id,
+      pickup_address:  String(pickup_address).slice(0, 80),
+      delivery_address: String(delivery_address).slice(0, 80),
+    });
 
     const trackingUrl = `https://1012rastreo.1012studiocreativo.com/track/${order.tracking_token}`;
     console.log(`[orders/whatsapp] Pedido creado: ${order.id}`);
@@ -600,11 +610,11 @@ app.post('/api/orders/:id/claim', async (req, res) => {
     // UPDATE atómico: solo asigna si courier_id sigue siendo NULL
     const { data: updated, error: updateError } = await supabase
       .from('orders')
-      .update({ courier_id, status: 'pendiente' })
+      .update({ courier_id, status: 'en_camino' })
       .eq('id', id)
       .is('courier_id', null)
       .eq('status', 'pendiente')
-      .select('id, tracking_token, pickup_address, delivery_address, base_amount, payment_method, description')
+      .select('id, tracking_token, pickup_address, delivery_address, base_amount, payment_method, description, whatsapp_phone, client_name, client_phone')
       .single();
 
     if (updateError || !updated) {
@@ -618,6 +628,19 @@ app.post('/api/orders/:id/claim', async (req, res) => {
       courier_id,
       courier_name: courier.name,
     });
+
+    // Notificar al cliente por WhatsApp si el pedido vino del bot
+    if (updated.whatsapp_phone) {
+      const trackingUrl = `https://1012rastreo.1012studiocreativo.com/track/${updated.tracking_token}`;
+      const msg =
+        `🛵 ¡Hola ${updated.client_name || 'cliente'}! Tu domicilio fue aceptado.\n\n` +
+        `Mensajero: *${courier.name}*\n` +
+        `📍 Entrega en: ${updated.delivery_address}\n\n` +
+        `Sigue tu pedido en tiempo real aquí:\n${trackingUrl}`;
+      sendWhatsApp(updated.whatsapp_phone, msg).catch(err =>
+        console.error('[claim] Error enviando WhatsApp al cliente:', err.message)
+      );
+    }
 
     console.log(`[orders/claim] Pedido ${id} tomado por mensajero ${courier.name}`);
     return res.json({ ok: true, order: updated });

@@ -62,7 +62,7 @@ export default function AvailableOrdersScreen({ navigation }) {
         .select('id, pickup_address, delivery_address, base_amount, payment_method, description, created_at, client_name, client_phone')
         .is('courier_id', null)
         .eq('status', 'pendiente')
-        .eq('source', 'cliente')
+        .in('source', ['cliente', 'whatsapp'])
         .order('created_at', { ascending: false })
       if (error) throw error
       setOrders(data || [])
