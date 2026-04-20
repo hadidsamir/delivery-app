@@ -34,32 +34,35 @@ export default function CourierMap() {
 
   // Cargar ubicaciones actuales de todos los mensajeros activos
   const fetchLocations = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('couriers')
-      .select('id, name, phone, photo_url, is_active, courier_locations(latitude, longitude, updated_at)')
-      .eq('is_active', true)
+    // Traer la ubicación más reciente de cada mensajero activo
+    const since = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+
+    const { data: locs, error } = await supabase
+      .from('courier_locations')
+      .select('courier_id, latitude, longitude, updated_at, couriers!inner(id, name, phone, photo_url, is_active)')
+      .eq('couriers.is_active', true)
+      .gte('updated_at', since)
+      .order('updated_at', { ascending: false })
 
     if (error) { console.error('[CourierMap] Error:', error.message); return }
 
-    const mapped = (data || [])
-      .map(c => {
-        const loc = c.courier_locations?.[0]
-        return loc ? {
-          id:         c.id,
-          name:       c.name,
-          phone:      c.phone,
-          photo_url:  c.photo_url,
-          lat:        loc.latitude,
-          lng:        loc.longitude,
-          updated_at: loc.updated_at,
-        } : null
+    // Deduplicar: quedarse con la ubicación más reciente por mensajero
+    const seen = new Set()
+    const mapped = (locs || [])
+      .filter(loc => {
+        if (seen.has(loc.courier_id)) return false
+        seen.add(loc.courier_id)
+        return true
       })
-      .filter(Boolean)
-      .filter(c => {
-        if (!c.updated_at) return false
-        const mins = (Date.now() - new Date(c.updated_at)) / 60000
-        return mins <= 10  // Ocultar si no enviaron ubicación en más de 10 minutos
-      })
+      .map(loc => ({
+        id:         loc.courier_id,
+        name:       loc.couriers.name,
+        phone:      loc.couriers.phone,
+        photo_url:  loc.couriers.photo_url,
+        lat:        loc.latitude,
+        lng:        loc.longitude,
+        updated_at: loc.updated_at,
+      }))
 
     setCouriers(mapped)
     setLastUpdate(new Date())
