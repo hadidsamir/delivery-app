@@ -684,26 +684,24 @@ app.post('/api/courier/idle-location', idleLocationLimiter, async (req, res) => 
       );
 
     // También actualizar courier_locations para que el mapa en vivo lo muestre
-    // Buscar si ya existe alguna fila para este mensajero
+    // Buscar si ya existe alguna fila idle (sin order_id) para este mensajero
     const { data: existing } = await supabase
       .from('courier_locations')
-      .select('id, order_id')
+      .select('id')
       .eq('courier_id', courier_id)
-      .order('updated_at', { ascending: false })
-      .limit(1)
+      .is('order_id', null)
       .maybeSingle();
 
     if (existing) {
-      // Actualizar la fila existente
       await supabase
         .from('courier_locations')
         .update({ latitude: lat, longitude: lng, updated_at: now })
         .eq('id', existing.id);
     } else {
-      // Insertar fila sin order_id (idle)
+      // Insertar fila idle (order_id = null, sin conflicto con UNIQUE order_id)
       await supabase
         .from('courier_locations')
-        .insert({ courier_id, latitude: lat, longitude: lng, updated_at: now });
+        .insert({ courier_id, order_id: null, latitude: lat, longitude: lng, updated_at: now });
     }
 
     return res.json({ ok: true });
