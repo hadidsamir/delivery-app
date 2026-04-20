@@ -58,7 +58,7 @@ export default function CourierMap() {
       .filter(c => {
         if (!c.updated_at) return false
         const mins = (Date.now() - new Date(c.updated_at)) / 60000
-        return mins <= 30  // Solo activos en los últimos 30 minutos
+        return mins <= 10  // Ocultar si no enviaron ubicación en más de 10 minutos
       })
 
     setCouriers(mapped)
@@ -94,8 +94,17 @@ export default function CourierMap() {
       })
       .subscribe()
 
+    // Cada minuto reaplica el filtro de actividad para ocultar mensajeros inactivos
+    const pruneTimer = setInterval(() => {
+      setCouriers(prev => prev.filter(c => {
+        if (!c.updated_at) return false
+        return (Date.now() - new Date(c.updated_at)) / 60000 <= 10
+      }))
+    }, 60000)
+
     return () => {
       if (channelRef.current) supabase.removeChannel(channelRef.current)
+      clearInterval(pruneTimer)
     }
   }, [fetchLocations])
 
