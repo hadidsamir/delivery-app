@@ -673,16 +673,37 @@ app.post('/api/courier/idle-location', idleLocationLimiter, async (req, res) => 
   }
 
   try {
-    const { error } = await supabase
+    const now = new Date().toISOString();
+
+    // Guardar en courier_idle_locations (tabla original)
+    await supabase
       .from('courier_idle_locations')
       .upsert(
-        { courier_id, latitude: lat, longitude: lng, updated_at: new Date().toISOString() },
+        { courier_id, latitude: lat, longitude: lng, updated_at: now },
         { onConflict: 'courier_id' }
       );
 
-    if (error) {
-      console.error('[idle-location] Error guardando:', error.message);
-      return res.status(500).json({ error: 'No se pudo guardar la ubicación' });
+    // También actualizar courier_locations para que el mapa en vivo lo muestre
+    // Buscar si ya existe alguna fila para este mensajero
+    const { data: existing } = await supabase
+      .from('courier_locations')
+      .select('id, order_id')
+      .eq('courier_id', courier_id)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
+      // Actualizar la fila existente
+      await supabase
+        .from('courier_locations')
+        .update({ latitude: lat, longitude: lng, updated_at: now })
+        .eq('id', existing.id);
+    } else {
+      // Insertar fila sin order_id (idle)
+      await supabase
+        .from('courier_locations')
+        .insert({ courier_id, latitude: lat, longitude: lng, updated_at: now });
     }
 
     return res.json({ ok: true });
