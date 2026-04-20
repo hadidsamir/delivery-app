@@ -55,6 +55,11 @@ export default function CourierMap() {
         } : null
       })
       .filter(Boolean)
+      .filter(c => {
+        if (!c.updated_at) return false
+        const mins = (Date.now() - new Date(c.updated_at)) / 60000
+        return mins <= 30  // Solo activos en los últimos 30 minutos
+      })
 
     setCouriers(mapped)
     setLastUpdate(new Date())
