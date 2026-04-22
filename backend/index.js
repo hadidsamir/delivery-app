@@ -150,6 +150,32 @@ const isValidCoord = (lat, lng) =>
   typeof lat === 'number' && typeof lng === 'number' &&
   lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 
+// ── Middlewares de autenticación ───────────────────────────────────────────────
+const ADMIN_SECRET   = process.env.ADMIN_SECRET;
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
+
+if (!ADMIN_SECRET)   throw new Error('ADMIN_SECRET es obligatorio');
+if (!WEBHOOK_SECRET) throw new Error('WEBHOOK_SECRET es obligatorio');
+
+// Protege rutas del panel admin — requiere header: Authorization: Bearer <ADMIN_SECRET>
+function requireAdmin(req, res, next) {
+  const auth = req.headers['authorization'] || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!token || token !== ADMIN_SECRET) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+  next();
+}
+
+// Protege webhooks de n8n — requiere header: X-Webhook-Secret: <WEBHOOK_SECRET>
+function requireWebhook(req, res, next) {
+  const token = req.headers['x-webhook-secret'] || '';
+  if (!token || token !== WEBHOOK_SECRET) {
+    return res.status(401).json({ error: 'Webhook no autorizado' });
+  }
+  next();
+}
+
 // ── Socket.io ──────────────────────────────────────────────────────────────────
 io.on('connection', (socket) => {
   console.log(`[socket] cliente conectado: ${socket.id}`);
@@ -327,9 +353,11 @@ app.post('/api/location', locationLimiter, async (req, res) => {
 });
 
 // ── PUT /api/order/:id/status ──────────────────────────────────────────────────
+// - Admin: requiere header Authorization: Bearer ADMIN_SECRET (sin courier_id)
+// - Mensajero: sin header de admin, requiere courier_id en body y ser el dueño del pedido
 app.put('/api/order/:id/status', async (req, res) => {
   const { id } = req.params;
-  const { status, courier_id, admin } = req.body;
+  const { status, courier_id } = req.body;
 
   if (!isValidUUID(id)) {
     return res.status(400).json({ error: 'ID de pedido inválido' });
@@ -340,8 +368,12 @@ app.put('/api/order/:id/status', async (req, res) => {
     return res.status(400).json({ error: `Status inválido. Debe ser: ${validStatuses.join(', ')}` });
   }
 
-  // R-01: courier_id obligatorio salvo que sea el admin
-  if (!admin) {
+  // Verificar si es admin por header (seguro) o mensajero por courier_id
+  const authHeader = req.headers['authorization'] || '';
+  const isAdmin = authHeader.startsWith('Bearer ') && authHeader.slice(7) === ADMIN_SECRET;
+
+  if (!isAdmin) {
+    // Es mensajero: validar courier_id y verificar que sea dueño del pedido
     if (!courier_id) {
       return res.status(400).json({ error: 'courier_id es obligatorio' });
     }
@@ -475,8 +507,8 @@ app.post('/api/orders/public', publicOrderLimiter, async (req, res) => {
 });
 
 // ── POST /api/orders/whatsapp ─────────────────────────────────────────────────
-// Crea pedido desde el bot de WhatsApp — sin coordenadas ni método de pago obligatorio
-app.post('/api/orders/whatsapp', async (req, res) => {
+// Crea pedido desde el bot de WhatsApp — requiere header X-Webhook-Secret
+app.post('/api/orders/whatsapp', requireWebhook, async (req, res) => {
   const { pickup_address, delivery_address, client_name, client_phone, whatsapp_phone, description } = req.body;
 
   if (!pickup_address || !delivery_address) {
@@ -765,7 +797,7 @@ const YCLOUD_FROM    = process.env.YCLOUD_FROM;
 async function sendWhatsApp(to, body) {
   const phone = String(to).replace(/\D/g, '');
   const normalized = phone.startsWith('57') ? phone : `57${phone}`;
-  console.log(`[YCloud] Enviando a ${normalized} desde ${YCLOUD_FROM}, key: ${YCLOUD_API_KEY?.slice(0,8)}...`);
+  console.log(`[YCloud] Enviando mensaje a ${normalized}`);
   const res = await fetch('https://api.ycloud.com/v2/whatsapp/messages/sendDirectly', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-API-Key': YCLOUD_API_KEY },
@@ -779,7 +811,7 @@ async function sendWhatsApp(to, body) {
 }
 
 // GET /api/support/chats — listar conversaciones escaladas (o todas activas)
-app.get('/api/support/chats', async (req, res) => {
+app.get('/api/support/chats', requireAdmin, async (req, res) => {
   try {
     const { data: sessions, error } = await supabase
       .from('chat_sessions')
@@ -807,7 +839,7 @@ app.get('/api/support/chats', async (req, res) => {
 });
 
 // POST /api/support/reply — admin responde al cliente
-app.post('/api/support/reply', async (req, res) => {
+app.post('/api/support/reply', requireAdmin, async (req, res) => {
   const { phone, body } = req.body;
   if (!phone || !body) return res.status(400).json({ error: 'phone y body requeridos' });
 
@@ -832,7 +864,7 @@ app.post('/api/support/reply', async (req, res) => {
 });
 
 // POST /api/support/resume — admin reactiva el bot para esa conversación
-app.post('/api/support/resume', async (req, res) => {
+app.post('/api/support/resume', requireAdmin, async (req, res) => {
   const { phone } = req.body;
   if (!phone) return res.status(400).json({ error: 'phone requerido' });
 
@@ -855,7 +887,7 @@ app.post('/api/support/resume', async (req, res) => {
 
 // POST /api/support/inbound — recibe mensajes del cliente cuando está en modo humano
 // (n8n llama este endpoint en vez de procesar con IA)
-app.post('/api/support/inbound', async (req, res) => {
+app.post('/api/support/inbound', requireWebhook, async (req, res) => {
   const { phone, body, display_name } = req.body;
   if (!phone || !body) return res.status(400).json({ error: 'phone y body requeridos' });
 
@@ -883,7 +915,7 @@ app.post('/api/support/inbound', async (req, res) => {
 });
 
 // POST /api/support/escalate — n8n llama esto cuando el bot decide escalar
-app.post('/api/support/escalate', async (req, res) => {
+app.post('/api/support/escalate', requireWebhook, async (req, res) => {
   const { phone, display_name, reason, summary } = req.body;
   if (!phone) return res.status(400).json({ error: 'phone requerido' });
 

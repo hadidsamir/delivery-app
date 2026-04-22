@@ -5,7 +5,13 @@ import Logo from '../components/Logo'
 import ThemeToggle from '../components/ThemeToggle'
 import { useTheme } from '../hooks/useTheme'
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://delivery-app-production-9c98.up.railway.app'
+const BACKEND_URL  = import.meta.env.VITE_BACKEND_URL || 'https://delivery-app-production-9c98.up.railway.app'
+const ADMIN_SECRET = import.meta.env.VITE_ADMIN_SECRET || ''
+
+const adminHeaders = {
+  'Content-Type': 'application/json',
+  'Authorization': `Bearer ${ADMIN_SECRET}`,
+}
 
 function timeLabel(ts) {
   if (!ts) return ''
@@ -213,7 +219,7 @@ export default function Support() {
 
   const fetchSessions = useCallback(async () => {
     try {
-      const res  = await fetch(`${BACKEND_URL}/api/support/chats`)
+      const res  = await fetch(`${BACKEND_URL}/api/support/chats`, { headers: adminHeaders })
       const data = await res.json()
       if (Array.isArray(data)) {
         setSessions(data)
@@ -271,7 +277,7 @@ export default function Support() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/support/reply`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: adminHeaders,
         body: JSON.stringify({ phone: activePhone, body: text }),
       })
       if (res.ok) {
@@ -302,7 +308,7 @@ export default function Support() {
     try {
       await fetch(`${BACKEND_URL}/api/support/resume`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: adminHeaders,
         body: JSON.stringify({ phone: activePhone }),
       })
       setSessions(prev => prev.map(s =>

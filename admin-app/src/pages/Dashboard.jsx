@@ -5,8 +5,14 @@ import Logo from '../components/Logo'
 import ThemeToggle from '../components/ThemeToggle'
 import { useTheme } from '../hooks/useTheme'
 
-const CLIENT_URL  = import.meta.env.VITE_CLIENT_APP_URL  || 'http://localhost:5175'
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
+const CLIENT_URL   = import.meta.env.VITE_CLIENT_APP_URL  || 'http://localhost:5175'
+const BACKEND_URL  = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
+const ADMIN_SECRET = import.meta.env.VITE_ADMIN_SECRET || ''
+
+const adminHeaders = {
+  'Content-Type': 'application/json',
+  'Authorization': `Bearer ${ADMIN_SECRET}`,
+}
 
 // Función switch en lugar de objetos separados.
 // Con objetos JS, el minificador de Vite puede reordenar claves y hacer que
@@ -226,8 +232,8 @@ export default function Dashboard() {
       // Luego cambiar status vía backend para disparar Socket.io y FCM
       const res = await fetch(`${BACKEND_URL}/api/order/${orderId}/status`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus, admin: true }),
+        headers: adminHeaders,
+        body: JSON.stringify({ status: newStatus }),
       })
       if (!res.ok) throw new Error('Error al actualizar status')
 

@@ -99,13 +99,10 @@ export default function CourierMap() {
       })
       .subscribe()
 
-    // Cada minuto reaplica el filtro de actividad para ocultar mensajeros inactivos
+    // Cada 30s recarga desde BD (fallback si Realtime se cae) y poda inactivos
     const pruneTimer = setInterval(() => {
-      setCouriers(prev => prev.filter(c => {
-        if (!c.updated_at) return false
-        return (Date.now() - new Date(c.updated_at)) / 60000 <= 10
-      }))
-    }, 60000)
+      fetchLocations()
+    }, 30000)
 
     return () => {
       if (channelRef.current) supabase.removeChannel(channelRef.current)
