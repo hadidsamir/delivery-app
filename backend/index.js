@@ -655,7 +655,7 @@ app.post('/api/orders/:id/claim', async (req, res) => {
 // GPS idle del mensajero cuando NO está en entrega activa
 const idleLocationLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 5,
+  max: 10,
   message: { error: 'Límite de actualizaciones de ubicación idle alcanzado.' },
 });
 

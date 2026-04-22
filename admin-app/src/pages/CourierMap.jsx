@@ -35,7 +35,7 @@ export default function CourierMap() {
   // Cargar ubicaciones actuales de todos los mensajeros activos
   const fetchLocations = useCallback(async () => {
     // Traer la ubicación más reciente de cada mensajero activo
-    const since = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+    const since = new Date(Date.now() - 15 * 60 * 1000).toISOString()
 
     const { data: locs, error } = await supabase
       .from('courier_locations')
