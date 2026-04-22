@@ -78,9 +78,11 @@ export default function CourierMap() {
         event:  '*',
         schema: 'public',
         table:  'courier_locations',
-      }, (payload) => {
+      }, async (payload) => {
         const loc = payload.new
-        if (!loc) return
+        if (!loc?.courier_id || !loc.latitude || !loc.longitude) return
+
+        // Buscar info del mensajero si no está en la lista
         setCouriers(prev => {
           const exists = prev.find(c => c.id === loc.courier_id)
           if (exists) {
@@ -89,7 +91,7 @@ export default function CourierMap() {
               : c
             )
           }
-          // Si es un mensajero nuevo, recargar todo
+          // Mensajero no estaba en lista — recargar para traerlo con su info
           fetchLocations()
           return prev
         })
