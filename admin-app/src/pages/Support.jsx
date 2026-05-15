@@ -8,6 +8,10 @@ import { useTheme } from '../hooks/useTheme'
 const BACKEND_URL  = import.meta.env.VITE_BACKEND_URL || 'https://delivery-app-production-9c98.up.railway.app'
 const ADMIN_SECRET = import.meta.env.VITE_ADMIN_SECRET || ''
 
+if (!ADMIN_SECRET) {
+  console.error('[Support] ⚠️ VITE_ADMIN_SECRET no está configurado. Las peticiones al backend fallarán con 401.')
+}
+
 const adminHeaders = {
   'Content-Type': 'application/json',
   'Authorization': `Bearer ${ADMIN_SECRET}`,

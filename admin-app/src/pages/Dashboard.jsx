@@ -5,9 +5,13 @@ import Logo from '../components/Logo'
 import ThemeToggle from '../components/ThemeToggle'
 import { useTheme } from '../hooks/useTheme'
 
-const CLIENT_URL   = import.meta.env.VITE_CLIENT_APP_URL  || 'http://localhost:5175'
-const BACKEND_URL  = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
+const CLIENT_URL   = import.meta.env.VITE_CLIENT_APP_URL  || 'https://1012rastreo.1012studiocreativo.com'
+const BACKEND_URL  = import.meta.env.VITE_BACKEND_URL  || 'https://delivery-app-production-9c98.up.railway.app'
 const ADMIN_SECRET = import.meta.env.VITE_ADMIN_SECRET || ''
+
+if (!ADMIN_SECRET) {
+  console.error('[Dashboard] ⚠️ VITE_ADMIN_SECRET no está configurado. Las peticiones al backend fallarán con 401.')
+}
 
 const adminHeaders = {
   'Content-Type': 'application/json',

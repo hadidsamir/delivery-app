@@ -90,7 +90,10 @@ const supabase = createClient(
 // ── Express + HTTP + Socket.io ─────────────────────────────────────────────────
 const app = express();
 const server = http.createServer(app);
-const allowedOrigins = (process.env.CORS_ORIGIN || '*').split(',').map(o => o.trim());
+if (!process.env.CORS_ORIGIN) {
+  throw new Error('CORS_ORIGIN es obligatorio — define los orígenes permitidos separados por coma');
+}
+const allowedOrigins = process.env.CORS_ORIGIN.split(',').map(o => o.trim());
 
 // ── Seguridad: headers HTTP ────────────────────────────────────────────────────
 app.use(helmet({
@@ -265,12 +268,21 @@ app.get('/api/order/:token', async (req, res) => {
     return res.status(404).json({ error: 'Pedido no encontrado' });
   }
 
-  // Verificar expiración: 2 horas después de entregado
+  // Verificar expiración: 2 horas después de entregado o cancelado
   const TRACKING_EXPIRY_HOURS = 2;
   if (order.status === 'entregado' && order.delivered_at) {
     const horasTranscurridas = (Date.now() - new Date(order.delivered_at).getTime()) / 1000 / 3600;
     if (horasTranscurridas >= TRACKING_EXPIRY_HOURS) {
       return res.status(410).json({ error: 'El link de rastreo ha expirado' });
+    }
+  }
+  if (order.status === 'cancelado') {
+    const ref = order.updated_at || order.created_at;
+    if (ref) {
+      const horasTranscurridas = (Date.now() - new Date(ref).getTime()) / 1000 / 3600;
+      if (horasTranscurridas >= TRACKING_EXPIRY_HOURS) {
+        return res.status(410).json({ error: 'El link de rastreo ha expirado' });
+      }
     }
   }
 
@@ -915,7 +927,12 @@ app.post('/api/support/inbound', requireWebhook, async (req, res) => {
 });
 
 // POST /api/support/escalate — n8n llama esto cuando el bot decide escalar
-app.post('/api/support/escalate', requireWebhook, async (req, res) => {
+const escalateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hora
+  max: 10, // máximo 10 escalaciones por hora por IP
+  message: { error: 'Demasiadas escalaciones. Intenta más tarde.' },
+});
+app.post('/api/support/escalate', requireWebhook, escalateLimiter, async (req, res) => {
   const { phone, display_name, reason, summary } = req.body;
   if (!phone) return res.status(400).json({ error: 'phone requerido' });
 
