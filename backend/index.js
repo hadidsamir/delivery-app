@@ -829,7 +829,7 @@ app.get('/api/support/chats', requireAdmin, async (req, res) => {
       .from('chat_sessions')
       .select('*')
       .order('updated_at', { ascending: false })
-      .limit(50);
+      .limit(200);
     if (error) throw error;
 
     // Traer mensajes en paralelo (más eficiente que secuencial)
@@ -839,7 +839,7 @@ app.get('/api/support/chats', requireAdmin, async (req, res) => {
         .select('id, phone, direction, sender, body, created_at')
         .eq('phone', s.phone)
         .order('created_at', { ascending: true })
-        .limit(50);
+        .limit(300);
       return { ...s, messages: messages || [] };
     }));
 

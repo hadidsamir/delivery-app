@@ -24,3 +24,5 @@ Thumbs.db
 
 # Claude Code (contexto privado)
 .claude/
+
+.vercel
