@@ -6,6 +6,72 @@ import Logo from '../components/Logo'
 import ThemeToggle from '../components/ThemeToggle'
 import { useTheme } from '../hooks/useTheme'
 
+// ── Componente de marcador animado ──────────────────────────────────────────────
+function AnimatedMarker({ courier, onClick, icon }) {
+  const markerRef = useRef(null)
+  const targetRef = useRef({ lat: courier.lat, lng: courier.lng })
+  const currentRef = useRef({ lat: courier.lat, lng: courier.lng })
+  const animationRef = useRef(null)
+
+  useEffect(() => {
+    // Actualizar destino cuando cambia la ubicación
+    targetRef.current = { lat: courier.lat, lng: courier.lng }
+
+    // Si el marcador ya existe, animar hacia la nueva posición
+    if (markerRef.current && window.google) {
+      const animate = () => {
+        const current = currentRef.current
+        const target = targetRef.current
+
+        // Calcular distancia
+        const deltaLat = target.lat - current.lat
+        const deltaLng = target.lng - current.lng
+        const distance = Math.sqrt(deltaLat * deltaLat + deltaLng * deltaLng)
+
+        // Si está muy cerca del objetivo, detener animación
+        if (distance < 0.000001) {
+          currentRef.current = { ...target }
+          markerRef.current.setPosition(target)
+          animationRef.current = null
+          return
+        }
+
+        // Interpolar suavemente (20% del camino por frame)
+        const step = 0.2
+        currentRef.current = {
+          lat: current.lat + deltaLat * step,
+          lng: current.lng + deltaLng * step,
+        }
+
+        markerRef.current.setPosition(currentRef.current)
+        animationRef.current = requestAnimationFrame(animate)
+      }
+
+      // Cancelar animación anterior si existe
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current)
+      }
+
+      animationRef.current = requestAnimationFrame(animate)
+    }
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current)
+      }
+    }
+  }, [courier.lat, courier.lng])
+
+  return (
+    <Marker
+      onLoad={(marker) => { markerRef.current = marker }}
+      position={{ lat: courier.lat, lng: courier.lng }}
+      onClick={onClick}
+      icon={icon}
+    />
+  )
+}
+
 const MAPS_KEY   = import.meta.env.VITE_GOOGLE_MAPS_KEY
 const LIBRARIES  = ['places']
 
@@ -221,9 +287,9 @@ export default function CourierMap() {
               }}
             >
               {couriers.map(c => (
-                <Marker
+                <AnimatedMarker
                   key={c.id}
-                  position={{ lat: c.lat, lng: c.lng }}
+                  courier={c}
                   onClick={() => setSelected(c)}
                   icon={{
                     url: c.photo_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=F97316&color=fff&size=40&rounded=true`,

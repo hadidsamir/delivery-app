@@ -15,6 +15,7 @@ export default function TrackingScreen({ route, navigation }) {
 
   // Hooks siempre al inicio (reglas de React — no retornar antes de hooks)
   const [delivering, setDelivering] = useState(false)
+  const [gpsStatus, setGpsStatus] = useState(null) // Estado GPS para mostrar al usuario
   const isMounted   = useRef(true)
   const stoppingRef = useRef(false)
 
@@ -34,6 +35,22 @@ export default function TrackingScreen({ route, navigation }) {
       isMounted.current = false
       if (!stoppingRef.current) stopGPS()
     }
+  }, [])
+
+  // ─── Monitor GPS: muestra última ubicación enviada cada 2 segundos ──
+  useEffect(() => {
+    const checkGpsStatus = async () => {
+      try {
+        const lastUpdate = await AsyncStorage.getItem('lastGpsUpdate')
+        if (lastUpdate) {
+          setGpsStatus(lastUpdate)
+        }
+      } catch {}
+    }
+
+    checkGpsStatus() // Inicial
+    const interval = setInterval(checkGpsStatus, 2000) // Cada 2 segundos
+    return () => clearInterval(interval)
   }, [])
 
   async function startGPS() {
@@ -216,6 +233,20 @@ export default function TrackingScreen({ route, navigation }) {
           </View>
         )}
 
+        {/* Estado GPS en tiempo real */}
+        {gpsStatus && (
+          <View style={styles.gpsCard}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={styles.gpsPulse} />
+              <Text style={styles.gpsTitle}>GPS ACTIVO</Text>
+            </View>
+            <Text style={styles.gpsText}>{gpsStatus}</Text>
+            <Text style={styles.gpsHint}>
+              ✓ Tu ubicación se comparte automáticamente cada 4 segundos, incluso con pantalla apagada
+            </Text>
+          </View>
+        )}
+
         {/* Botón entregado */}
         <TouchableOpacity
           style={[styles.doneBtn, delivering && { opacity: 0.6 }]}
@@ -267,6 +298,43 @@ const styles = StyleSheet.create({
   row:       { flexDirection: 'row', alignItems: 'flex-start' },
   icon:      { fontSize: 14, marginRight: 8, marginTop: 2, width: 22 },
   rowText:   { fontSize: 14, color: '#374151', flex: 1, fontWeight: '500', lineHeight: 20 },
+
+  gpsCard: {
+    backgroundColor: '#ECFDF5',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#10B981',
+    gap: 8,
+  },
+  gpsPulse: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#10B981',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  gpsTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#047857',
+    letterSpacing: 1,
+  },
+  gpsText: {
+    fontSize: 13,
+    color: '#065F46',
+    fontWeight: '600',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  gpsHint: {
+    fontSize: 11,
+    color: '#059669',
+    lineHeight: 16,
+  },
 
   doneBtn:     { backgroundColor: '#22C55E', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 4 },
   doneBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
