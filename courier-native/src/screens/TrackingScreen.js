@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  Alert, ActivityIndicator, ScrollView, Platform,
+  Alert, ActivityIndicator, ScrollView, Platform, Linking,
 } from 'react-native'
 import * as Location from 'expo-location'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -200,9 +200,17 @@ export default function TrackingScreen({ route, navigation }) {
           {!!order.client_phone && (
             <View style={styles.row}>
               <Text style={styles.icon}>📞</Text>
-              <Text style={[styles.rowText, { color: '#F97316', fontWeight: '700' }]}>
-                {order.client_phone}
-              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  const phoneNumber = order.client_phone.replace(/\s/g, '')
+                  Linking.openURL(`tel:${phoneNumber}`)
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.rowText, { color: '#F97316', fontWeight: '700', textDecorationLine: 'underline' }]}>
+                  {order.client_phone}
+                </Text>
+              </TouchableOpacity>
             </View>
           )}
         </View>
