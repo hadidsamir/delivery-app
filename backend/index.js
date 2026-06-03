@@ -640,15 +640,15 @@ app.post('/api/orders/:id/claim', async (req, res) => {
       return res.status(403).json({ error: 'Mensajero no encontrado o inactivo' });
     }
 
-    // Verificar que tiene menos de 2 pedidos activos en_camino
+    // Verificar que tiene menos de 3 pedidos activos en_camino
     const { count: activeCount } = await supabase
       .from('orders')
       .select('id', { count: 'exact', head: true })
       .eq('courier_id', courier_id)
       .eq('status', 'en_camino');
 
-    if (activeCount >= 2) {
-      return res.status(409).json({ error: 'Ya tienes 2 servicios activos. Entrega uno primero.' });
+    if (activeCount >= 3) {
+      return res.status(409).json({ error: 'Ya tienes 3 servicios activos. Entrega uno primero.' });
     }
 
     // UPDATE atómico: solo asigna si courier_id sigue siendo NULL

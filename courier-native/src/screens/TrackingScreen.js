@@ -1,13 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  Alert, ActivityIndicator, ScrollView, Platform, Linking,
+  Alert, ActivityIndicator, ScrollView, Platform, Linking, Dimensions,
 } from 'react-native'
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps'
+import MapViewDirections from 'react-native-maps-directions'
 import * as Location from 'expo-location'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '../lib/supabase'
 import { BACKGROUND_LOCATION_TASK, startGpsWatchdog, stopGpsWatchdog } from '../lib/backgroundTask'
 import { BACKEND_URL } from '../lib/config'
+
+const GOOGLE_MAPS_KEY = 'AIzaSyAriubtJ4QMKvAMCdS5ajb6JWEYe7jnOsk'
 
 export default function TrackingScreen({ route, navigation }) {
   const order   = route.params?.order
@@ -16,8 +20,11 @@ export default function TrackingScreen({ route, navigation }) {
   // Hooks siempre al inicio (reglas de React — no retornar antes de hooks)
   const [delivering, setDelivering] = useState(false)
   const [gpsStatus, setGpsStatus] = useState(null) // Estado GPS para mostrar al usuario
+  const [currentLocation, setCurrentLocation] = useState(null) // Ubicación actual del mensajero
+  const [destinationCoords, setDestinationCoords] = useState(null) // Coordenadas del destino
   const isMounted   = useRef(true)
   const stoppingRef = useRef(false)
+  const mapRef = useRef(null)
 
   // Guard: si no llegaron params, redirigir (después de los hooks)
   useEffect(() => {
@@ -52,6 +59,61 @@ export default function TrackingScreen({ route, navigation }) {
     const interval = setInterval(checkGpsStatus, 2000) // Cada 2 segundos
     return () => clearInterval(interval)
   }, [])
+
+  // ─── Obtener ubicación actual del mensajero ──
+  useEffect(() => {
+    async function getCurrentPosition() {
+      try {
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        })
+        setCurrentLocation({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        })
+      } catch (err) {
+        console.warn('[TrackingScreen] Error obteniendo ubicación actual:', err.message)
+      }
+    }
+    getCurrentPosition()
+
+    // Actualizar ubicación cada 10 segundos
+    const interval = setInterval(getCurrentPosition, 10000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // ─── Geocodificar dirección de entrega ──
+  useEffect(() => {
+    async function geocodeAddress() {
+      if (!order?.delivery_address) return
+
+      // Si ya tiene coordenadas en la BD, usarlas
+      if (order.delivery_lat && order.delivery_lng) {
+        setDestinationCoords({
+          latitude: order.delivery_lat,
+          longitude: order.delivery_lng,
+        })
+        return
+      }
+
+      // Si no, geocodificar la dirección
+      try {
+        const address = `${order.delivery_address}, Valledupar, Cesar, Colombia`
+        const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${GOOGLE_MAPS_KEY}`
+        const res = await fetch(url)
+        const data = await res.json()
+        if (data.results?.[0]) {
+          setDestinationCoords({
+            latitude: data.results[0].geometry.location.lat,
+            longitude: data.results[0].geometry.location.lng,
+          })
+        }
+      } catch (err) {
+        console.warn('[TrackingScreen] Error geocodificando dirección:', err.message)
+      }
+    }
+    geocodeAddress()
+  }, [order])
 
   async function startGPS() {
     try {
@@ -255,6 +317,66 @@ export default function TrackingScreen({ route, navigation }) {
           </View>
         )}
 
+        {/* Mapa con ruta al destino */}
+        {currentLocation && destinationCoords && (
+          <View style={styles.mapContainer}>
+            <Text style={styles.mapTitle}>RUTA AL DESTINO</Text>
+            <MapView
+              ref={mapRef}
+              provider={PROVIDER_GOOGLE}
+              style={styles.map}
+              initialRegion={{
+                latitude: (currentLocation.latitude + destinationCoords.latitude) / 2,
+                longitude: (currentLocation.longitude + destinationCoords.longitude) / 2,
+                latitudeDelta: Math.abs(currentLocation.latitude - destinationCoords.latitude) * 2 || 0.05,
+                longitudeDelta: Math.abs(currentLocation.longitude - destinationCoords.longitude) * 2 || 0.05,
+              }}
+              showsUserLocation={false}
+              showsMyLocationButton={false}
+              zoomEnabled={true}
+              scrollEnabled={true}
+              rotateEnabled={false}
+            >
+              {/* Marcador de ubicación actual del mensajero */}
+              <Marker
+                coordinate={currentLocation}
+                title="Tu ubicación"
+                pinColor="#F97316"
+              />
+
+              {/* Marcador de destino */}
+              <Marker
+                coordinate={destinationCoords}
+                title="Destino"
+                description={order.delivery_address}
+                pinColor="#1D4ED8"
+              />
+
+              {/* Ruta con Google Directions */}
+              <MapViewDirections
+                origin={currentLocation}
+                destination={destinationCoords}
+                apikey={GOOGLE_MAPS_KEY}
+                strokeWidth={4}
+                strokeColor="#1D4ED8"
+                mode="DRIVING"
+                onReady={result => {
+                  // Auto-ajustar el zoom para mostrar toda la ruta
+                  if (mapRef.current) {
+                    mapRef.current.fitToCoordinates(result.coordinates, {
+                      edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
+                      animated: true,
+                    })
+                  }
+                }}
+                onError={(errorMessage) => {
+                  console.warn('[MapViewDirections] Error:', errorMessage)
+                }}
+              />
+            </MapView>
+          </View>
+        )}
+
         {/* Botón entregado */}
         <TouchableOpacity
           style={[styles.doneBtn, delivering && { opacity: 0.6 }]}
@@ -342,6 +464,27 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#059669',
     lineHeight: 16,
+  },
+
+  mapContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    overflow: 'hidden',
+  },
+  mapTitle: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#9CA3AF',
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  map: {
+    width: '100%',
+    height: 300,
+    borderRadius: 8,
   },
 
   doneBtn:     { backgroundColor: '#22C55E', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 4 },

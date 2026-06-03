@@ -31,7 +31,12 @@
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_LOCATION",
         "android.permission.RECEIVE_BOOT_COMPLETED"
-      ]
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyAriubtJ4QMKvAMCdS5ajb6JWEYe7jnOsk"
+        }
+      }
     },
     "plugins": [
       ["expo-notifications", { "sounds": ["./assets/sounds/nuevo_servicio.wav"] }],
@@ -46,6 +51,11 @@
         }
       ]
     ],
+    "ios": {
+      "config": {
+        "googleMapsApiKey": "AIzaSyAriubtJ4QMKvAMCdS5ajb6JWEYe7jnOsk"
+      }
+    },
     "owner": "hadidsamir",
     "extra": {
       "eas": {
