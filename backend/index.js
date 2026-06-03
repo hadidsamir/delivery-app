@@ -673,18 +673,10 @@ app.post('/api/orders/:id/claim', async (req, res) => {
       courier_name: courier.name,
     });
 
-    // Notificar al cliente por WhatsApp si el pedido vino del bot
-    if (updated.whatsapp_phone) {
-      const trackingUrl = `https://1012rastreo.1012studiocreativo.com/track/${updated.tracking_token}`;
-      const msg =
-        `🛵 ¡Hola ${updated.client_name || 'cliente'}! Tu domicilio fue aceptado.\n\n` +
-        `Mensajero: *${courier.name}*\n` +
-        `📍 Entrega en: ${updated.delivery_address}\n\n` +
-        `Sigue tu pedido en tiempo real aquí:\n${trackingUrl}`;
-      sendWhatsApp(updated.whatsapp_phone, msg).catch(err =>
-        console.error('[claim] Error enviando WhatsApp al cliente:', err.message)
-      );
-    }
+    // NOTA: La notificación WhatsApp al cliente la maneja n8n automáticamente
+    // mediante el workflow "Notificar Cliente cuando Mensajero Toma el Servicio"
+    // que se dispara con un webhook de Supabase cuando status cambia a "en_camino".
+    // Enviarla desde aquí causaba mensajes duplicados al cliente.
 
     console.log(`[orders/claim] Pedido ${id} tomado por mensajero ${courier.name}`);
     return res.json({ ok: true, order: updated });
