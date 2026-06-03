@@ -146,7 +146,7 @@ function TrackingMap({ courierLocation, deliveryAddress, deliveryLat, deliveryLn
 
   const mapRef        = useRef(null)
   const boundsSetRef  = useRef(false)
-  const userZoomedRef = useRef(false)
+  const userInteractedRef = useRef(false) // Usuario hizo zoom, pan, o rotate
 
   const [destinationCoords, setDestinationCoords] = useState(null)
 
@@ -176,13 +176,17 @@ function TrackingMap({ courierLocation, deliveryAddress, deliveryLat, deliveryLn
     boundsSetRef.current = true
   }, [destinationCoords, courierLocation])
 
-  // Mover la cámara cuando llega una nueva posición GPS (panTo ya es suave)
+  // Mover la cámara cuando llega una nueva posición GPS
   useEffect(() => {
     if (!courierLocation || !mapRef.current || !boundsSetRef.current) return
-    if (userZoomedRef.current) {
+
+    // Si el usuario ya interactuó (zoom, pan, rotate), solo centrar suavemente SIN cambiar zoom
+    if (userInteractedRef.current) {
       mapRef.current.panTo(courierLocation)
       return
     }
+
+    // Auto-ajustar bounds solo si el usuario NO ha tocado el mapa
     if (destinationCoords) {
       const bounds = new window.google.maps.LatLngBounds()
       bounds.extend(courierLocation)
@@ -191,7 +195,7 @@ function TrackingMap({ courierLocation, deliveryAddress, deliveryLat, deliveryLn
     } else {
       mapRef.current.panTo(courierLocation)
     }
-  }, [courierLocation])
+  }, [courierLocation, destinationCoords])
 
   if (!isLoaded) {
     return (
@@ -224,8 +228,20 @@ function TrackingMap({ courierLocation, deliveryAddress, deliveryLat, deliveryLn
           zoom={courierLocation ? 15 : 13}
           onLoad={map => {
             mapRef.current = map
+
+            // Detectar cualquier interacción del usuario (zoom, pan, rotación)
+            // Una vez que el usuario toca el mapa, respetamos su vista
             map.addListener('zoom_changed', () => {
-              if (boundsSetRef.current) userZoomedRef.current = true
+              if (boundsSetRef.current) userInteractedRef.current = true
+            })
+            map.addListener('dragstart', () => {
+              if (boundsSetRef.current) userInteractedRef.current = true
+            })
+            map.addListener('heading_changed', () => {
+              if (boundsSetRef.current) userInteractedRef.current = true
+            })
+            map.addListener('tilt_changed', () => {
+              if (boundsSetRef.current) userInteractedRef.current = true
             })
           }}
           options={{
@@ -233,10 +249,13 @@ function TrackingMap({ courierLocation, deliveryAddress, deliveryLat, deliveryLn
             disableDefaultUI: true,
             zoomControl: true,
             zoomControlOptions: { position: window.google.maps.ControlPosition.RIGHT_CENTER },
-            gestureHandling: 'greedy',
+            rotateControl: true, // Permitir rotación del mapa
+            rotateControlOptions: { position: window.google.maps.ControlPosition.RIGHT_CENTER },
+            gestureHandling: 'greedy', // Permite zoom, pan y rotación con gestos táctiles
             mapTypeControl: false,
             streetViewControl: false,
             fullscreenControl: false,
+            tilt: 0, // Permitir rotación en plano (sin inclinación 3D)
           }}
         >
           {/* Mensajero — círculo naranja con borde blanco, se mueve suavemente */}
