@@ -64,15 +64,17 @@ export default function TrackingScreen({ route, navigation }) {
   useEffect(() => {
     async function getCurrentPosition() {
       try {
+        console.log('[TrackingScreen] Solicitando ubicación actual...')
         const location = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         })
+        console.log('[TrackingScreen] Ubicación obtenida:', location.coords.latitude, location.coords.longitude)
         setCurrentLocation({
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
         })
       } catch (err) {
-        console.warn('[TrackingScreen] Error obteniendo ubicación actual:', err.message)
+        console.error('[TrackingScreen] Error obteniendo ubicación actual:', err.message)
       }
     }
     getCurrentPosition()
@@ -85,10 +87,14 @@ export default function TrackingScreen({ route, navigation }) {
   // ─── Geocodificar dirección de entrega ──
   useEffect(() => {
     async function geocodeAddress() {
-      if (!order?.delivery_address) return
+      if (!order?.delivery_address) {
+        console.warn('[TrackingScreen] No hay dirección de entrega')
+        return
+      }
 
       // Si ya tiene coordenadas en la BD, usarlas
       if (order.delivery_lat && order.delivery_lng) {
+        console.log('[TrackingScreen] Usando coords de BD:', order.delivery_lat, order.delivery_lng)
         setDestinationCoords({
           latitude: order.delivery_lat,
           longitude: order.delivery_lng,
@@ -99,17 +105,22 @@ export default function TrackingScreen({ route, navigation }) {
       // Si no, geocodificar la dirección
       try {
         const address = `${order.delivery_address}, Valledupar, Cesar, Colombia`
+        console.log('[TrackingScreen] Geocodificando:', address)
         const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${GOOGLE_MAPS_KEY}`
         const res = await fetch(url)
         const data = await res.json()
+        console.log('[TrackingScreen] Geocoding response:', data.status)
         if (data.results?.[0]) {
+          console.log('[TrackingScreen] Destino geocodificado:', data.results[0].geometry.location)
           setDestinationCoords({
             latitude: data.results[0].geometry.location.lat,
             longitude: data.results[0].geometry.location.lng,
           })
+        } else {
+          console.error('[TrackingScreen] No se encontraron resultados de geocoding')
         }
       } catch (err) {
-        console.warn('[TrackingScreen] Error geocodificando dirección:', err.message)
+        console.error('[TrackingScreen] Error geocodificando dirección:', err.message)
       }
     }
     geocodeAddress()
@@ -318,9 +329,18 @@ export default function TrackingScreen({ route, navigation }) {
         )}
 
         {/* Mapa con ruta al destino */}
-        {currentLocation && destinationCoords && (
-          <View style={styles.mapContainer}>
-            <Text style={styles.mapTitle}>RUTA AL DESTINO</Text>
+        <View style={styles.mapContainer}>
+          <Text style={styles.mapTitle}>RUTA AL DESTINO</Text>
+          {!currentLocation || !destinationCoords ? (
+            <View style={{...styles.map, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F3F4F6'}}>
+              <Text style={{fontSize: 14, color: '#6B7280', textAlign: 'center', paddingHorizontal: 20}}>
+                {!currentLocation && !destinationCoords ? '🗺️ Obteniendo ubicación y destino...' :
+                 !currentLocation ? '📍 Obteniendo tu ubicación GPS...' :
+                 '🎯 Calculando ruta al destino...'}
+              </Text>
+            </View>
+          ) : (
+            <View style={{flex: 1}}>
             <MapView
               ref={mapRef}
               provider={PROVIDER_GOOGLE}
@@ -374,8 +394,9 @@ export default function TrackingScreen({ route, navigation }) {
                 }}
               />
             </MapView>
-          </View>
-        )}
+            </View>
+          )}
+        </View>
 
         {/* Botón entregado */}
         <TouchableOpacity
