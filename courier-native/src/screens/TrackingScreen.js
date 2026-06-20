@@ -126,6 +126,20 @@ export default function TrackingScreen({ route, navigation }) {
     geocodeAddress()
   }, [order])
 
+  // ─── Debug: loguear cuando ambas coordenadas estén listas ──
+  useEffect(() => {
+    if (currentLocation && destinationCoords) {
+      console.log('[TrackingScreen] ✅ AMBAS COORDENADAS LISTAS:')
+      console.log('  - Origen (mensajero):', currentLocation)
+      console.log('  - Destino (cliente):', destinationCoords)
+    } else {
+      console.log('[TrackingScreen] ⏳ Esperando coordenadas...', {
+        currentLocation: !!currentLocation,
+        destinationCoords: !!destinationCoords
+      })
+    }
+  }, [currentLocation, destinationCoords])
+
   async function startGPS() {
     try {
       // Guardar entrega activa para que la tarea de background pueda leer los IDs
@@ -346,16 +360,19 @@ export default function TrackingScreen({ route, navigation }) {
               provider={PROVIDER_GOOGLE}
               style={styles.map}
               initialRegion={{
-                latitude: (currentLocation.latitude + destinationCoords.latitude) / 2,
-                longitude: (currentLocation.longitude + destinationCoords.longitude) / 2,
-                latitudeDelta: Math.abs(currentLocation.latitude - destinationCoords.latitude) * 2 || 0.05,
-                longitudeDelta: Math.abs(currentLocation.longitude - destinationCoords.longitude) * 2 || 0.05,
+                latitude: currentLocation.latitude,
+                longitude: currentLocation.longitude,
+                latitudeDelta: 0.05,
+                longitudeDelta: 0.05,
               }}
-              showsUserLocation={false}
-              showsMyLocationButton={false}
+              showsUserLocation={true}
+              showsMyLocationButton={true}
               zoomEnabled={true}
               scrollEnabled={true}
               rotateEnabled={false}
+              onMapReady={() => {
+                console.log('[MapView] Mapa listo y renderizado')
+              }}
             >
               {/* Marcador de ubicación actual del mensajero */}
               <Marker
@@ -380,7 +397,11 @@ export default function TrackingScreen({ route, navigation }) {
                 strokeWidth={4}
                 strokeColor="#1D4ED8"
                 mode="DRIVING"
+                onStart={(params) => {
+                  console.log('[MapViewDirections] Iniciando cálculo de ruta desde', params.origin, 'hasta', params.destination)
+                }}
                 onReady={result => {
+                  console.log('[MapViewDirections] Ruta calculada:', result.distance, 'km,', result.duration, 'min')
                   // Auto-ajustar el zoom para mostrar toda la ruta
                   if (mapRef.current) {
                     mapRef.current.fitToCoordinates(result.coordinates, {
@@ -390,7 +411,7 @@ export default function TrackingScreen({ route, navigation }) {
                   }
                 }}
                 onError={(errorMessage) => {
-                  console.warn('[MapViewDirections] Error:', errorMessage)
+                  console.error('[MapViewDirections] ERROR:', errorMessage)
                 }}
               />
             </MapView>
