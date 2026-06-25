@@ -22,7 +22,10 @@ export default function Couriers() {
   const [showModal, setShowModal] = useState(false)
   const [editCourier, setEditCourier] = useState(null)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ name: '', phone: '', pin: '', photo_url: '', is_active: true })
+  const [form, setForm] = useState({ name: '', phone: '', pin: '', photo_url: '', plate: '', is_active: true })
+  const [photoFile, setPhotoFile] = useState(null)       // archivo nuevo seleccionado desde el PC
+  const [photoPreview, setPhotoPreview] = useState('')   // preview local antes de subir
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [todayStats, setTodayStats] = useState({}) // { courier_id: count }
   const [historicalStats, setHistoricalStats] = useState([])
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]) // YYYY-MM-DD
@@ -115,7 +118,9 @@ export default function Couriers() {
 
   function openNew() {
     setEditCourier(null)
-    setForm({ name: '', phone: '', photo_url: '', is_active: true })
+    setForm({ name: '', phone: '', photo_url: '', plate: '', is_active: true })
+    setPhotoFile(null)
+    setPhotoPreview('')
     setShowModal(true)
   }
 
@@ -126,9 +131,19 @@ export default function Couriers() {
       phone: courier.phone || '',
       pin: courier.pin || '',
       photo_url: courier.photo_url || '',
+      plate: courier.plate || '',
       is_active: courier.is_active,
     })
+    setPhotoFile(null)
+    setPhotoPreview(courier.photo_url || '')
     setShowModal(true)
+  }
+
+  function handlePhotoSelect(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setPhotoFile(file)
+    setPhotoPreview(URL.createObjectURL(file))
   }
 
   async function handleSave(e) {
@@ -138,11 +153,29 @@ export default function Couriers() {
       setSaving(false)
       return alert('El PIN debe tener al menos 4 caracteres')
     }
+
+    let photoUrl = form.photo_url.trim() || null
+    if (photoFile) {
+      setUploadingPhoto(true)
+      const ext = photoFile.name.split('.').pop()
+      const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+      const { error: uploadError } = await supabase.storage
+        .from('courier-photos')
+        .upload(path, photoFile, { upsert: true })
+      setUploadingPhoto(false)
+      if (uploadError) {
+        setSaving(false)
+        return alert('Error al subir la foto: ' + uploadError.message)
+      }
+      photoUrl = supabase.storage.from('courier-photos').getPublicUrl(path).data.publicUrl
+    }
+
     const payload = {
       name: form.name.trim(),
       phone: form.phone.trim(),
       pin: form.pin.trim(),
-      photo_url: form.photo_url.trim() || null,
+      photo_url: photoUrl,
+      plate: form.plate.trim().toUpperCase() || null,
       is_active: form.is_active,
     }
     let error
@@ -369,7 +402,7 @@ export default function Couriers() {
 
             <form onSubmit={handleSave} className="space-y-4">
               <div className="flex justify-center mb-2">
-                <Avatar name={form.name || '?'} photoUrl={form.photo_url} />
+                <Avatar name={form.name || '?'} photoUrl={photoPreview} />
               </div>
 
               <div>
@@ -412,15 +445,28 @@ export default function Couriers() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">URL de foto <span className="text-gray-400 font-normal">(opcional)</span></label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Foto del mensajero <span className="text-gray-400 font-normal">(opcional)</span></label>
                 <input
-                  type="url"
-                  value={form.photo_url}
-                  onChange={e => setForm(f => ({ ...f, photo_url: e.target.value }))}
-                  className="w-full border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600"
-                  placeholder="https://..."
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoSelect}
+                  className="w-full text-sm text-gray-600 dark:text-gray-300 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-orange-50 file:text-orange-600 dark:file:bg-orange-900/30 dark:file:text-orange-300 file:text-sm file:font-medium hover:file:bg-orange-100"
                 />
+                {uploadingPhoto && <p className="text-xs text-orange-500 mt-1">Subiendo foto…</p>}
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Sin foto se muestra la inicial del nombre</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Placa de la moto <span className="text-gray-400 font-normal">(opcional)</span></label>
+                <input
+                  type="text"
+                  value={form.plate}
+                  onChange={e => setForm(f => ({ ...f, plate: e.target.value }))}
+                  className="w-full border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 font-mono tracking-widest uppercase"
+                  placeholder="Ej: ABC12D"
+                  maxLength={10}
+                />
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Se incluye en el mensaje de WhatsApp al cliente</p>
               </div>
 
               <div className="flex items-center gap-3 py-1">

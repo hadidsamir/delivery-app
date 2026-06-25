@@ -6,15 +6,15 @@ import ThemeToggle from '../components/ThemeToggle'
 import { useTheme } from '../hooks/useTheme'
 
 const BACKEND_URL  = import.meta.env.VITE_BACKEND_URL || 'https://delivery-app-production-9c98.up.railway.app'
-const ADMIN_SECRET = import.meta.env.VITE_ADMIN_SECRET || ''
 
-if (!ADMIN_SECRET) {
-  console.error('[Support] ⚠️ VITE_ADMIN_SECRET no está configurado. Las peticiones al backend fallarán con 401.')
-}
-
-const adminHeaders = {
-  'Content-Type': 'application/json',
-  'Authorization': `Bearer ${ADMIN_SECRET}`,
+// Usa la sesión real de Supabase Auth del admin logueado — nunca un secreto
+// fijo, que quedaría expuesto en el JS público del navegador.
+async function getAdminHeaders() {
+  const { data } = await supabase.auth.getSession()
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${data?.session?.access_token || ''}`,
+  }
 }
 
 function timeLabel(ts) {
@@ -223,7 +223,7 @@ export default function Support() {
 
   const fetchSessions = useCallback(async () => {
     try {
-      const res  = await fetch(`${BACKEND_URL}/api/support/chats`, { headers: adminHeaders })
+      const res  = await fetch(`${BACKEND_URL}/api/support/chats`, { headers: await getAdminHeaders() })
       const data = await res.json()
       if (Array.isArray(data)) {
         setSessions(data)
@@ -281,7 +281,7 @@ export default function Support() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/support/reply`, {
         method: 'POST',
-        headers: adminHeaders,
+        headers: await getAdminHeaders(),
         body: JSON.stringify({ phone: activePhone, body: text }),
       })
       if (res.ok) {
@@ -312,7 +312,7 @@ export default function Support() {
     try {
       await fetch(`${BACKEND_URL}/api/support/resume`, {
         method: 'POST',
-        headers: adminHeaders,
+        headers: await getAdminHeaders(),
         body: JSON.stringify({ phone: activePhone }),
       })
       setSessions(prev => prev.map(s =>

@@ -47,12 +47,11 @@ del mensajero y el detalle de su pedido.
 6. Si lleva 2+ pedidos → mostrar "Tu pedido es entrega #X de N"
 7. El tracking_token expira 2 horas después de status='entregado'
 ## Variables de entorno necesarias (backend)
-SUPABASE_URL= sb_publishable_Q6pJi0PbSYMSnGVwn4GnIg_6vQAfuPB
-SUPABASE_ANON_KEY= eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqdWlyYndrbXd5amdhZmRkY2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5NjMzOTgsImV4cCI6MjA4OTUzOTM5OH0.Af8FPnMIXMM6PHKQlcnzVz1pKWX-OcBOuANtMyKsoBA
-PORT=3001
-CORS_ORIGIN=http://localhost:5173
+Ver `backend/.env` (no commiteado). Requiere: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+PORT, CORS_ORIGIN, ADMIN_SECRET, WEBHOOK_SECRET, YCLOUD_API_KEY.
 ## Variables de entorno necesarias (frontend)
-VITE_SUPABASE_URL= sb_publishable_Q6pJi0PbSYMSnGVwn4GnIg_6vQAfuPB
-VITE_SUPABASE_ANON_KEY= eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqdWlyYndrbXd5amdhZmRkY2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5NjMzOTgsImV4cCI6MjA4OTUzOTM5OH0.Af8FPnMIXMM6PHKQlcnzVz1pKWX-OcBOuANtMyKsoBA
-VITE_GOOGLE_MAPS_KEY= AIzaSyAriubtJ4QMKvAMCdS5ajb6JWEYe7jnOsk
-VITE_BACKEND_URL=http://localhost:3001
+Ver `client-app/.env` y `admin-app/.env` (no commiteados). Requiere: VITE_SUPABASE_URL,
+VITE_SUPABASE_ANON_KEY, VITE_GOOGLE_MAPS_KEY, VITE_BACKEND_URL.
+
+⚠️ Nunca pegar valores reales de claves/tokens en este archivo — está commiteado al
+repositorio de git y es visible para cualquiera con acceso al repo.

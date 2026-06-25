@@ -3,8 +3,9 @@ import {
   View, Text, TouchableOpacity, StyleSheet,
   Alert, ActivityIndicator, ScrollView, Platform, Linking, Dimensions,
 } from 'react-native'
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps'
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps'
 import MapViewDirections from 'react-native-maps-directions'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import * as Location from 'expo-location'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '../lib/supabase'
@@ -12,6 +13,33 @@ import { BACKGROUND_LOCATION_TASK, startGpsWatchdog, stopGpsWatchdog } from '../
 import { BACKEND_URL } from '../lib/config'
 
 const GOOGLE_MAPS_KEY = 'AIzaSyAriubtJ4QMKvAMCdS5ajb6JWEYe7jnOsk'
+
+// Distancia en metros entre dos coordenadas (fórmula de Haversine)
+function distanceMeters(a, b) {
+  const R = 6371000
+  const dLat = (b.latitude - a.latitude) * Math.PI / 180
+  const dLng = (b.longitude - a.longitude) * Math.PI / 180
+  const lat1 = a.latitude * Math.PI / 180
+  const lat2 = b.latitude * Math.PI / 180
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2
+  return 2 * R * Math.asin(Math.sqrt(h))
+}
+
+// Recorta la ruta ya calculada hasta el punto más cercano a la posición actual,
+// dando el efecto de "línea que se acorta" sin tener que recalcular la ruta (como Waze/Google Maps)
+function trimRouteToCurrentPosition(fullRoute, current) {
+  if (!fullRoute?.length || !current) return fullRoute || []
+  let closestIndex = 0
+  let closestDist = Infinity
+  for (let i = 0; i < fullRoute.length; i++) {
+    const d = distanceMeters(current, fullRoute[i])
+    if (d < closestDist) {
+      closestDist = d
+      closestIndex = i
+    }
+  }
+  return [current, ...fullRoute.slice(closestIndex + 1)]
+}
 
 export default function TrackingScreen({ route, navigation }) {
   const order   = route.params?.order
@@ -22,9 +50,16 @@ export default function TrackingScreen({ route, navigation }) {
   const [gpsStatus, setGpsStatus] = useState(null) // Estado GPS para mostrar al usuario
   const [currentLocation, setCurrentLocation] = useState(null) // Ubicación actual del mensajero
   const [destinationCoords, setDestinationCoords] = useState(null) // Coordenadas del destino
+  const [routeOrigin, setRouteOrigin] = useState(null) // Origen usado para calcular la ruta (se actualiza solo si te moviste lo suficiente)
+  const [routeCoords, setRouteCoords] = useState([]) // Puntos completos de la ruta calculada por Google Directions
+  const [isFullscreen, setIsFullscreen] = useState(false) // Mapa en pantalla completa
+  const lastRouteOriginRef = useRef(null)
   const isMounted   = useRef(true)
   const stoppingRef = useRef(false)
   const mapRef = useRef(null)
+  const fullscreenMapRef = useRef(null)
+  const hasFitNormalRef = useRef(false)
+  const hasFitFullscreenRef = useRef(false)
 
   // Guard: si no llegaron params, redirigir (después de los hooks)
   useEffect(() => {
@@ -69,10 +104,18 @@ export default function TrackingScreen({ route, navigation }) {
           accuracy: Location.Accuracy.Balanced,
         })
         console.log('[TrackingScreen] Ubicación obtenida:', location.coords.latitude, location.coords.longitude)
-        setCurrentLocation({
+        const coords = {
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
-        })
+        }
+        setCurrentLocation(coords)
+
+        // Solo recalcular la ruta si te moviste más de 30m — evita que la línea
+        // azul se redibuje (parpadee) en cada actualización de ubicación
+        if (!lastRouteOriginRef.current || distanceMeters(lastRouteOriginRef.current, coords) > 30) {
+          lastRouteOriginRef.current = coords
+          setRouteOrigin(coords)
+        }
       } catch (err) {
         console.error('[TrackingScreen] Error obteniendo ubicación actual:', err.message)
       }
@@ -243,6 +286,80 @@ export default function TrackingScreen({ route, navigation }) {
     }
   }
 
+  function renderMapContent(ref, mapStyle, hasFitRef) {
+    return (
+      <MapView
+        ref={ref}
+        provider={PROVIDER_GOOGLE}
+        style={mapStyle}
+        initialRegion={{
+          latitude: currentLocation.latitude,
+          longitude: currentLocation.longitude,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        }}
+        showsUserLocation={true}
+        showsMyLocationButton={true}
+        zoomEnabled={true}
+        scrollEnabled={true}
+        rotateEnabled={true}
+        pitchEnabled={true}
+        onMapReady={() => {
+          console.log('[MapView] Mapa listo y renderizado')
+        }}
+      >
+        {/* Marcador de ubicación actual del mensajero */}
+        <Marker
+          coordinate={currentLocation}
+          title="Tu ubicación"
+          pinColor="#F97316"
+        />
+
+        {/* Marcador de destino */}
+        <Marker
+          coordinate={destinationCoords}
+          title="Destino"
+          description={order.delivery_address}
+          pinColor="#1D4ED8"
+        />
+
+        {/* Ruta con Google Directions — invisible, solo se usa para obtener los puntos del camino */}
+        <MapViewDirections
+          origin={routeOrigin || currentLocation}
+          destination={destinationCoords}
+          apikey={GOOGLE_MAPS_KEY}
+          strokeWidth={0}
+          mode="DRIVING"
+          onReady={result => {
+            console.log('[MapViewDirections] Ruta calculada:', result.distance, 'km,', result.duration, 'min')
+            setRouteCoords(result.coordinates)
+            // Solo ajustar la cámara la primera vez — si el usuario ya rotó/movió el mapa,
+            // las actualizaciones de ubicación no deben resetear su posición
+            if (ref.current && !hasFitRef.current) {
+              hasFitRef.current = true
+              ref.current.fitToCoordinates(result.coordinates, {
+                edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
+                animated: true,
+              })
+            }
+          }}
+          onError={(errorMessage) => {
+            console.error('[MapViewDirections] ERROR:', errorMessage)
+          }}
+        />
+
+        {/* Línea de ruta recortada en vivo según tu posición — efecto Waze/Google Maps */}
+        {routeCoords.length > 0 && (
+          <Polyline
+            coordinates={trimRouteToCurrentPosition(routeCoords, currentLocation)}
+            strokeWidth={4}
+            strokeColor="#1D4ED8"
+          />
+        )}
+      </MapView>
+    )
+  }
+
   return (
     <View style={styles.container}>
 
@@ -328,23 +445,20 @@ export default function TrackingScreen({ route, navigation }) {
           </View>
         )}
 
-        {/* Estado GPS en tiempo real */}
-        {gpsStatus && (
-          <View style={styles.gpsCard}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <View style={styles.gpsPulse} />
-              <Text style={styles.gpsTitle}>GPS ACTIVO</Text>
-            </View>
-            <Text style={styles.gpsText}>{gpsStatus}</Text>
-            <Text style={styles.gpsHint}>
-              ✓ Tu ubicación se comparte automáticamente cada 4 segundos, incluso con pantalla apagada
-            </Text>
-          </View>
-        )}
-
         {/* Mapa con ruta al destino */}
         <View style={styles.mapContainer}>
-          <Text style={styles.mapTitle}>RUTA AL DESTINO</Text>
+          <View style={styles.mapTitleRow}>
+            <Text style={styles.mapTitle}>RUTA AL DESTINO</Text>
+            {currentLocation && destinationCoords && (
+              <TouchableOpacity
+                style={styles.fullscreenBtn}
+                onPress={() => setIsFullscreen(true)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.fullscreenBtnText}>⛶ Pantalla completa</Text>
+              </TouchableOpacity>
+            )}
+          </View>
           {!currentLocation || !destinationCoords ? (
             <View style={{...styles.map, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F3F4F6'}}>
               <Text style={{fontSize: 14, color: '#6B7280', textAlign: 'center', paddingHorizontal: 20}}>
@@ -355,66 +469,7 @@ export default function TrackingScreen({ route, navigation }) {
             </View>
           ) : (
             <View style={{flex: 1}}>
-            <MapView
-              ref={mapRef}
-              provider={PROVIDER_GOOGLE}
-              style={styles.map}
-              initialRegion={{
-                latitude: currentLocation.latitude,
-                longitude: currentLocation.longitude,
-                latitudeDelta: 0.05,
-                longitudeDelta: 0.05,
-              }}
-              showsUserLocation={true}
-              showsMyLocationButton={true}
-              zoomEnabled={true}
-              scrollEnabled={true}
-              rotateEnabled={false}
-              onMapReady={() => {
-                console.log('[MapView] Mapa listo y renderizado')
-              }}
-            >
-              {/* Marcador de ubicación actual del mensajero */}
-              <Marker
-                coordinate={currentLocation}
-                title="Tu ubicación"
-                pinColor="#F97316"
-              />
-
-              {/* Marcador de destino */}
-              <Marker
-                coordinate={destinationCoords}
-                title="Destino"
-                description={order.delivery_address}
-                pinColor="#1D4ED8"
-              />
-
-              {/* Ruta con Google Directions */}
-              <MapViewDirections
-                origin={currentLocation}
-                destination={destinationCoords}
-                apikey={GOOGLE_MAPS_KEY}
-                strokeWidth={4}
-                strokeColor="#1D4ED8"
-                mode="DRIVING"
-                onStart={(params) => {
-                  console.log('[MapViewDirections] Iniciando cálculo de ruta desde', params.origin, 'hasta', params.destination)
-                }}
-                onReady={result => {
-                  console.log('[MapViewDirections] Ruta calculada:', result.distance, 'km,', result.duration, 'min')
-                  // Auto-ajustar el zoom para mostrar toda la ruta
-                  if (mapRef.current) {
-                    mapRef.current.fitToCoordinates(result.coordinates, {
-                      edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
-                      animated: true,
-                    })
-                  }
-                }}
-                onError={(errorMessage) => {
-                  console.error('[MapViewDirections] ERROR:', errorMessage)
-                }}
-              />
-            </MapView>
+              {renderMapContent(mapRef, styles.map, hasFitNormalRef)}
             </View>
           )}
         </View>
@@ -433,6 +488,20 @@ export default function TrackingScreen({ route, navigation }) {
         </TouchableOpacity>
 
       </ScrollView>
+
+      {/* Mapa en pantalla completa — capa superpuesta (no usa Modal nativo para respetar la status bar) */}
+      {isFullscreen && (
+        <SafeAreaView style={styles.fullscreenOverlay} edges={['top', 'bottom']}>
+          {currentLocation && destinationCoords && renderMapContent(fullscreenMapRef, { flex: 1 }, hasFitFullscreenRef)}
+          <TouchableOpacity
+            style={styles.closeFullscreenBtn}
+            onPress={() => setIsFullscreen(false)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.closeFullscreenBtnText}>✕ Cerrar</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
+      )}
     </View>
   )
 }
@@ -516,17 +585,57 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
     overflow: 'hidden',
   },
+  mapTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
   mapTitle: {
     fontSize: 10,
     fontWeight: '700',
     color: '#9CA3AF',
     letterSpacing: 1,
-    marginBottom: 8,
   },
   map: {
     width: '100%',
     height: 300,
     borderRadius: 8,
+  },
+  fullscreenBtn: {
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  fullscreenBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  fullscreenOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#fff',
+    zIndex: 999,
+    elevation: 999,
+  },
+  closeFullscreenBtn: {
+    position: 'absolute',
+    top: 100,
+    right: 6,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 24,
+  },
+  closeFullscreenBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
   },
 
   doneBtn:     { backgroundColor: '#22C55E', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 4 },

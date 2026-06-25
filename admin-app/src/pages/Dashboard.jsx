@@ -7,15 +7,15 @@ import { useTheme } from '../hooks/useTheme'
 
 const CLIENT_URL   = import.meta.env.VITE_CLIENT_APP_URL  || 'https://1012rastreo.1012studiocreativo.com'
 const BACKEND_URL  = import.meta.env.VITE_BACKEND_URL  || 'https://delivery-app-production-9c98.up.railway.app'
-const ADMIN_SECRET = import.meta.env.VITE_ADMIN_SECRET || ''
 
-if (!ADMIN_SECRET) {
-  console.error('[Dashboard] ⚠️ VITE_ADMIN_SECRET no está configurado. Las peticiones al backend fallarán con 401.')
-}
-
-const adminHeaders = {
-  'Content-Type': 'application/json',
-  'Authorization': `Bearer ${ADMIN_SECRET}`,
+// Usa la sesión real de Supabase Auth del admin logueado — nunca un secreto
+// fijo, que quedaría expuesto en el JS público del navegador.
+async function getAdminHeaders() {
+  const { data } = await supabase.auth.getSession()
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${data?.session?.access_token || ''}`,
+  }
 }
 
 // Función switch en lugar de objetos separados.
@@ -236,7 +236,7 @@ export default function Dashboard() {
       // Luego cambiar status vía backend para disparar Socket.io y FCM
       const res = await fetch(`${BACKEND_URL}/api/order/${orderId}/status`, {
         method: 'PUT',
-        headers: adminHeaders,
+        headers: await getAdminHeaders(),
         body: JSON.stringify({ status: newStatus }),
       })
       if (!res.ok) throw new Error('Error al actualizar status')

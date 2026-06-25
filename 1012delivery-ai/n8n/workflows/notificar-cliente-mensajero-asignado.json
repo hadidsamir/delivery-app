@@ -78,13 +78,14 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey",        "value": "={{ $vars.SUPABASE_ANON_KEY }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_ANON_KEY }}" },
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
             { "name": "Content-Type",  "value": "application/json" }
           ]
         },
         "options": { "response": { "response": { "responseFormat": "json" } } }
-      }
+      },
+      "notes": "⚠️ Cambiado de SUPABASE_ANON_KEY a SUPABASE_SERVICE_ROLE_KEY: tras el fix\nde RLS, la anon key ya no puede leer libremente. Configura la variable\nSUPABASE_SERVICE_ROLE_KEY en n8n (Settings > Variables)."
     },
 
     {
@@ -95,17 +96,18 @@
       "position": [660, 400],
       "parameters": {
         "method": "GET",
-        "url": "=https://ujuirbwkmwyjgafddcdk.supabase.co/rest/v1/couriers?id=eq.{{ $('Extraer Order ID').item.json.courierId }}&select=id,name,phone,photo_url",
+        "url": "=https://ujuirbwkmwyjgafddcdk.supabase.co/rest/v1/couriers?id=eq.{{ $('Extraer Order ID').item.json.courierId }}&select=id,name,phone,photo_url,plate",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey",        "value": "={{ $vars.SUPABASE_ANON_KEY }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_ANON_KEY }}" },
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
             { "name": "Content-Type",  "value": "application/json" }
           ]
         },
         "options": { "response": { "response": { "responseFormat": "json" } } }
-      }
+      },
+      "notes": "⚠️ Cambiado a SUPABASE_SERVICE_ROLE_KEY (ver nota en 'Obtener Datos del Pedido').\nAgregado 'plate' al select para incluir la placa en el mensaje."
     },
 
     {
@@ -115,7 +117,7 @@
       "typeVersion": 2,
       "position": [880, 300],
       "parameters": {
-        "jsCode": "const orderData = $('Obtener Datos del Pedido').item.json;\nconst courierData = $('Obtener Datos del Mensajero').item.json;\n\n// Supabase devuelve arrays, tomar el primer elemento\nconst order = Array.isArray(orderData) ? orderData[0] : orderData;\nconst courier = Array.isArray(courierData) ? courierData[0] : courierData;\n\nif (!order || !courier) {\n  throw new Error('No se encontró el pedido o el mensajero');\n}\n\nconst linkRastreo = `https://1012rastreo.1012studiocreativo.com/track/${order.tracking_token}`;\n\n// Formatear el número de teléfono del cliente\n// YCloud requiere formato internacional sin + ni espacios: 573XXXXXXXXX\nlet clientPhone = order.client_phone.replace(/[^0-9]/g, '');\nif (clientPhone.startsWith('0')) clientPhone = '57' + clientPhone.slice(1);\nif (!clientPhone.startsWith('57')) clientPhone = '57' + clientPhone;\n\nreturn {\n  json: {\n    clientPhone,\n    clientName: order.client_name,\n    deliveryAddress: order.delivery_address,\n    trackingLink: linkRastreo,\n    courierName: courier.name,\n    courierPhone: courier.phone,\n    orderId: order.id\n  }\n};"
+        "jsCode": "const orderData = $('Obtener Datos del Pedido').item.json;\nconst courierData = $('Obtener Datos del Mensajero').item.json;\n\n// Supabase devuelve arrays, tomar el primer elemento\nconst order = Array.isArray(orderData) ? orderData[0] : orderData;\nconst courier = Array.isArray(courierData) ? courierData[0] : courierData;\n\nif (!order || !courier) {\n  throw new Error('No se encontró el pedido o el mensajero');\n}\n\nconst linkRastreo = `https://1012rastreo.1012studiocreativo.com/track/${order.tracking_token}`;\n\n// Formatear el número de teléfono del cliente\n// YCloud requiere formato internacional sin + ni espacios: 573XXXXXXXXX\nlet clientPhone = order.client_phone.replace(/[^0-9]/g, '');\nif (clientPhone.startsWith('0')) clientPhone = '57' + clientPhone.slice(1);\nif (!clientPhone.startsWith('57')) clientPhone = '57' + clientPhone;\n\nreturn {\n  json: {\n    clientPhone,\n    clientName: order.client_name,\n    deliveryAddress: order.delivery_address,\n    trackingLink: linkRastreo,\n    courierName: courier.name,\n    courierPhone: courier.phone,\n    courierPlate: courier.plate || '',\n    courierPhoto: courier.photo_url || '',\n    orderId: order.id\n  }\n};"
       }
     },
 
@@ -132,11 +134,12 @@
             {
               "name": "mensaje",
               "type": "string",
-              "value": "=¡Hola {{ $json.clientName }}! Tu mensajero ya tomó tu servicio y está en camino 🛵\n\nMensajero: {{ $json.courierName }}\n\nPuedes rastrear tu pedido en tiempo real aquí:\n{{ $json.trackingLink }}\n\nCualquier duda escríbenos. ¡Gracias por usar 1012Entrega!"
+              "value": "=¡Hola {{ $json.clientName }}! Tu mensajero ya tomó tu servicio y está en camino 🛵\n\nMensajero: {{ $json.courierName }}{{ $json.courierPlate ? '\\nPlaca: ' + $json.courierPlate : '' }}\n\nPuedes rastrear tu pedido en tiempo real aquí:\n{{ $json.trackingLink }}\n\nCualquier duda escríbenos. ¡Gracias por usar 1012Entrega!"
             },
             { "name": "clientPhone",  "type": "string", "value": "={{ $json.clientPhone }}" },
             { "name": "trackingLink", "type": "string", "value": "={{ $json.trackingLink }}" },
-            { "name": "courierName",  "type": "string", "value": "={{ $json.courierName }}" }
+            { "name": "courierName",  "type": "string", "value": "={{ $json.courierName }}" },
+            { "name": "courierPhoto", "type": "string", "value": "={{ $json.courierPhoto }}" }
           ]
         },
         "options": {}
@@ -164,7 +167,54 @@
         "jsonBody": "={\n  \"from\": \"{{ $vars.YCLOUD_PHONE_NUMBER }}\",\n  \"to\": \"{{ $json.clientPhone }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"{{ $json.mensaje.replace(/\"/g, '\\\\\"').replace(/\\n/g, '\\\\n') }}\"\n  }\n}",
         "options": {}
       },
-      "notes": "Envía el mensaje al cliente con el nombre del mensajero y el link de rastreo."
+      "notes": "Envía el mensaje al cliente con el nombre del mensajero, su placa y el link de rastreo."
+    },
+
+    {
+      "id": "node-if-tiene-foto",
+      "name": "¿Tiene foto el mensajero?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1540, 300],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "cond-foto",
+              "leftValue": "={{ $('Construir Mensaje para Cliente').item.json.courierPhoto }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "notes": "Solo intenta enviar la foto si el mensajero tiene photo_url configurada en el admin."
+    },
+
+    {
+      "id": "node-enviar-foto",
+      "name": "Enviar Foto del Mensajero",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1760, 220],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.ycloud.com/v2/whatsapp/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-API-Key",    "value": "={{ $vars.YCLOUD_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"from\": \"{{ $vars.YCLOUD_PHONE_NUMBER }}\",\n  \"to\": \"{{ $('Construir Mensaje para Cliente').item.json.clientPhone }}\",\n  \"type\": \"image\",\n  \"image\": {\n    \"link\": \"{{ $('Construir Mensaje para Cliente').item.json.courierPhoto }}\",\n    \"caption\": \"Tu mensajero: {{ $('Construir Mensaje para Cliente').item.json.courierName }}\"\n  }\n}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "notes": "Envía la foto del mensajero como mensaje separado. neverError=true para que\nuna foto rota/inválida no detenga el flujo de notificación al cliente."
     },
 
     {
@@ -172,15 +222,15 @@
       "name": "Registrar Notificación Enviada",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1540, 300],
+      "position": [1980, 300],
       "parameters": {
         "method": "POST",
         "url": "https://ujuirbwkmwyjgafddcdk.supabase.co/rest/v1/whatsapp_notifications",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey",        "value": "={{ $vars.SUPABASE_ANON_KEY }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_ANON_KEY }}" },
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
             { "name": "Content-Type",  "value": "application/json" },
             { "name": "Prefer",        "value": "return=minimal" }
           ]
@@ -190,7 +240,7 @@
         "jsonBody": "={\n  \"order_id\": \"{{ $('Combinar Pedido + Mensajero').item.json.orderId }}\",\n  \"to_phone\": \"{{ $('Combinar Pedido + Mensajero').item.json.clientPhone }}\",\n  \"type\": \"mensajero_asignado\",\n  \"tracking_link\": \"{{ $('Combinar Pedido + Mensajero').item.json.trackingLink }}\"\n}",
         "options": { "response": { "response": { "neverError": true } } }
       },
-      "notes": "Registra en Supabase que se envió la notificación. Requiere tabla whatsapp_notifications."
+      "notes": "Registra en Supabase que se envió la notificación. Requiere tabla whatsapp_notifications.\n⚠️ Cambiado a SUPABASE_SERVICE_ROLE_KEY (ver nota en 'Obtener Datos del Pedido') —\ntras el fix de RLS, esta tabla quedó bloqueada para anon key."
     }
 
   ],
@@ -224,6 +274,15 @@
       "main": [[{ "node": "Enviar WhatsApp al Cliente", "type": "main", "index": 0 }]]
     },
     "Enviar WhatsApp al Cliente": {
+      "main": [[{ "node": "¿Tiene foto el mensajero?", "type": "main", "index": 0 }]]
+    },
+    "¿Tiene foto el mensajero?": {
+      "main": [
+        [{ "node": "Enviar Foto del Mensajero", "type": "main", "index": 0 }],
+        [{ "node": "Registrar Notificación Enviada", "type": "main", "index": 0 }]
+      ]
+    },
+    "Enviar Foto del Mensajero": {
       "main": [[{ "node": "Registrar Notificación Enviada", "type": "main", "index": 0 }]]
     }
   },

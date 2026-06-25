@@ -154,19 +154,24 @@ const isValidCoord = (lat, lng) =>
   lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 
 // ── Middlewares de autenticación ───────────────────────────────────────────────
-const ADMIN_SECRET   = process.env.ADMIN_SECRET;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 
-if (!ADMIN_SECRET)   throw new Error('ADMIN_SECRET es obligatorio');
 if (!WEBHOOK_SECRET) throw new Error('WEBHOOK_SECRET es obligatorio');
 
-// Protege rutas del panel admin — requiere header: Authorization: Bearer <ADMIN_SECRET>
-function requireAdmin(req, res, next) {
+// Protege rutas del panel admin — requiere header: Authorization: Bearer <access_token>
+// El token es la sesión real de Supabase Auth del admin que inició sesión en admin-app
+// (ya no un secreto fijo: ese secreto quedaba expuesto en el JS público del navegador).
+async function requireAdmin(req, res, next) {
   const auth = req.headers['authorization'] || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (!token || token !== ADMIN_SECRET) {
+  if (!token) {
     return res.status(401).json({ error: 'No autorizado' });
   }
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+  req.adminUser = data.user;
   next();
 }
 
@@ -365,7 +370,7 @@ app.post('/api/location', locationLimiter, async (req, res) => {
 });
 
 // ── PUT /api/order/:id/status ──────────────────────────────────────────────────
-// - Admin: requiere header Authorization: Bearer ADMIN_SECRET (sin courier_id)
+// - Admin: requiere header Authorization: Bearer <access_token de Supabase Auth> (sin courier_id)
 // - Mensajero: sin header de admin, requiere courier_id en body y ser el dueño del pedido
 app.put('/api/order/:id/status', async (req, res) => {
   const { id } = req.params;
@@ -380,9 +385,14 @@ app.put('/api/order/:id/status', async (req, res) => {
     return res.status(400).json({ error: `Status inválido. Debe ser: ${validStatuses.join(', ')}` });
   }
 
-  // Verificar si es admin por header (seguro) o mensajero por courier_id
+  // Verificar si es admin (sesión real de Supabase Auth) o mensajero por courier_id
   const authHeader = req.headers['authorization'] || '';
-  const isAdmin = authHeader.startsWith('Bearer ') && authHeader.slice(7) === ADMIN_SECRET;
+  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  let isAdmin = false;
+  if (bearerToken) {
+    const { data, error } = await supabase.auth.getUser(bearerToken);
+    isAdmin = !error && !!data?.user;
+  }
 
   if (!isAdmin) {
     // Es mensajero: validar courier_id y verificar que sea dueño del pedido

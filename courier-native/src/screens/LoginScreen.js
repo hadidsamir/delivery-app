@@ -6,6 +6,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Notifications from 'expo-notifications'
 import { supabase } from '../lib/supabase'
+import { BACKEND_URL } from '../lib/config'
 
 // Obtiene y guarda el token FCM directo en Supabase.
 // Usamos getDevicePushTokenAsync() porque la app se construye localmente
@@ -32,12 +33,14 @@ async function registerPushToken(courierId) {
 
 export default function LoginScreen({ navigation }) {
   const [phone, setPhone] = useState('')
+  const [pin, setPin] = useState('')
   const [loading, setLoading] = useState(false)
 
   async function handleLogin() {
     const phoneClean = phone.trim()
-    if (!phoneClean) {
-      Alert.alert('Error', 'Ingresa tu numero de telefono')
+    const pinClean = pin.trim()
+    if (!phoneClean || !pinClean) {
+      Alert.alert('Error', 'Ingresa tu número de teléfono y PIN')
       return
     }
     if (phoneClean.replace(/\D/g, '').length < 7) {
@@ -47,22 +50,22 @@ export default function LoginScreen({ navigation }) {
 
     setLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('couriers')
-        .select('*')
-        .eq('phone', phoneClean)
-        .eq('is_active', true)
-        .single()
+      const res = await fetch(`${BACKEND_URL}/api/courier/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: phoneClean, pin: pinClean }),
+      })
+      const result = await res.json().catch(() => null)
 
-      if (error || !data) {
-        Alert.alert('Error', 'Mensajero no encontrado. Verifica tu numero.')
+      if (!res.ok || !result?.courier) {
+        Alert.alert('Error', result?.error || 'Teléfono o PIN incorrecto.')
         return
       }
 
       // Registrar push token en Supabase (en paralelo, no bloquea el login)
-      registerPushToken(data.id)
+      registerPushToken(result.courier.id)
 
-      await AsyncStorage.setItem('courier', JSON.stringify(data))
+      await AsyncStorage.setItem('courier', JSON.stringify(result.courier))
       navigation.replace('MainTabs')
     } catch (err) {
       Alert.alert('Error', 'Error de conexion. Intenta de nuevo.')
@@ -97,6 +100,18 @@ export default function LoginScreen({ navigation }) {
           value={phone}
           onChangeText={setPhone}
           keyboardType="phone-pad"
+          autoCorrect={false}
+          returnKeyType="next"
+        />
+
+        <TextInput
+          style={[styles.input, { marginTop: 12 }]}
+          placeholder="PIN"
+          placeholderTextColor="#9CA3AF"
+          value={pin}
+          onChangeText={setPin}
+          keyboardType="number-pad"
+          secureTextEntry
           autoCorrect={false}
           returnKeyType="done"
           onSubmitEditing={handleLogin}
